@@ -39,14 +39,17 @@ class InferenceCore:
         # self.all_labels = [l.item() for l in all_labels]
         self.all_labels = all_labels
 
-    def step(self, image, mask=None, valid_labels=None, end=False):
+    def step(self, image, mask=None, valid_labels=None, end=False, manually_curated_masks=False):
         # image: 3*H*W
         # mask: num_objects*H*W or None
         self.curr_ti += 1
         image, self.pad = pad_divide_by(image, 16)
         image = image.unsqueeze(0) # add the batch dimension
+        if manually_curated_masks:
+            is_mem_frame = (mask is not None) and (not end)
+        else:
+            is_mem_frame = ((self.curr_ti-self.last_mem_ti >= self.mem_every) or (mask is not None)) and (not end)
 
-        is_mem_frame = ((self.curr_ti-self.last_mem_ti >= self.mem_every) or (mask is not None)) and (not end)
         need_segment = (self.curr_ti > 0) and ((valid_labels is None) or (len(self.all_labels) != len(valid_labels)))
         is_deep_update = (
             (self.deep_update_sync and is_mem_frame) or  # synchronized
@@ -98,6 +101,7 @@ class InferenceCore:
                                     pred_prob_with_bg[1:].unsqueeze(0), is_deep_update=is_deep_update)
             self.memory.add_memory(key, shrinkage, value, self.all_labels, 
                                     selection=selection if self.enable_long_term else None)
+            
             self.last_mem_ti = self.curr_ti
 
             if is_deep_update:

@@ -26,8 +26,8 @@ class XMem(nn.Module):
         self.single_object = config.get('single_object', False)
         print(f'Single object mode: {self.single_object}')
 
-        self.key_encoder = KeyEncoder_2()
-        self.value_encoder = ValueEncoder_2(self.value_dim, self.hidden_dim, self.single_object)
+        self.key_encoder = KeyEncoder_2(restore_path=config['restore_path'])
+        self.value_encoder = ValueEncoder_2(self.value_dim, self.hidden_dim, self.single_object, restore_path=config['restore_path'])
 
         # Projection from f16 feature space to key/value space
         self.key_proj = KeyProjection(1024, self.key_dim)

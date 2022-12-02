@@ -17,7 +17,7 @@ import torch.nn.functional as F
 from model.group_modules import *
 from model import resnet
 from model.cbam import CBAM
-from model.u2netfast import U2NETFAST, _upsample_like
+from model.u2netfast import U2NET, _upsample_like
 
 class FeatureFusionBlock(nn.Module):
     def __init__(self, x_in_dim, g_in_dim, g_mid_dim, g_out_dim):
@@ -156,10 +156,15 @@ class ValueEncoder_2(nn.Module):
         
         self.single_object = single_object
         #insert u2net 
-        network = U2NETFAST(in_ch=5)  
+        network = U2NET(in_ch=5)  
         if restore_path != "":
-            network.load_state_dict(torch.load(restore_path))
-        self.conv_in = network.conv_in
+            if "u2net" in restore_path: 
+                original_weights = torch.load(restore_path)
+                from collections import OrderedDict
+                weights = OrderedDict(("stage1.rebnconvin.conv_s1__.weight" if k == "stage1.rebnconvin.conv_s1.weight" else k, v) for k, v in original_weights.items())
+                network.load_state_dict(weights, strict=False)
+            else: 
+                network.load_state_dict(torch.load(restore_path), strict=False)
         self.stage1 = network.stage1
         self.pool12 = network.pool12  # see where this is happening: 1/2, 64
         self.stage2 = network.stage2
@@ -176,15 +181,7 @@ class ValueEncoder_2(nn.Module):
 
         # decoder
         self.stage5d = network.stage5d
-        self.stage4d = network.stage4d
-        self.stage3d = network.stage3d
-        self.stage2d = network.stage2d
-
-        self.conv1 = nn.Conv2d(512, 1024, 1) # 1/16, 1024
-        self.conv2 = nn.Conv2d(256, 512, 1) # 1/8, 512
-        self.conv3 = nn.Conv2d(128, 256, 1) # 1/4, 256 
-        self.conv4 = nn.Conv2d(128, 64, 1) # 1/2, 64 for value encoder
-        self.conv5 = nn.Conv2d(1024, 64, 1) # 1/2, 64 for value encoder
+        self.conv1 = nn.Conv2d(512, 256, 1) 
 
 
         #end u2net 
@@ -209,11 +206,10 @@ class ValueEncoder_2(nn.Module):
 
         hx = g
 
-        hxin = self.conv_in(hx)
         # hx = self.pool_in(hxin)
 
         # stage 1
-        hx1 = self.stage1(hxin)
+        hx1 = self.stage1(hx)
         hx = self.pool12(hx1)
 
         # stage 2
@@ -238,25 +234,9 @@ class ValueEncoder_2(nn.Module):
 
         # -------------------- decoder --------------------
         hx5d = self.stage5d(torch.cat((hx6up, hx5), 1))
-        hx5dup = _upsample_like(hx5d, hx4)
-        
 
-        hx4d = self.stage4d(torch.cat((hx5dup, hx4), 1))
-        hx4dup = _upsample_like(hx4d, hx3)
-
-        hx3d = self.stage3d(torch.cat((hx4dup, hx3), 1))
-        hx3dup = _upsample_like(hx3d, hx2)
-
-        hx2d = self.stage2d(torch.cat((hx3dup, hx2), 1))
-        hx2dup = _upsample_like(hx2d, hx1)
-        #return f16, f8, f4 
-
-        hx5dup_ = self.conv1(hx5dup) # 1/16, 1024
-        hx4dup_ = self.conv2(hx4dup) # 1/8, 512
-        hx3dup_ = self.conv3(hx3dup) # 1/4, 256
-        #self.conv4 = nn.Conv2d(256, 128, 1) # 1/2, 64 for value encoder
-        hx2 = self.conv4(hx2) # 1/2, 64
-        g = hx4d
+        hx5d_ = self.conv1(hx5d) # 1/16, 1024
+        g = hx5d_
         #end u2net 
 
         g = g.view(batch_size, num_objects, *g.shape[1:])
@@ -298,10 +278,9 @@ class KeyEncoder(nn.Module):
 class KeyEncoder_2(nn.Module): #this is what ari needs to edit 
     def __init__(self, restore_path=""):
         super().__init__()
-        network = U2NETFAST()  
+        network = U2NET()  
         if restore_path != "":
             network.load_state_dict(torch.load(restore_path))
-        self.conv_in = network.conv_in
         self.stage1 = network.stage1
         self.pool12 = network.pool12  # see where this is happening: 1/2, 64
         self.stage2 = network.stage2
@@ -319,20 +298,16 @@ class KeyEncoder_2(nn.Module): #this is what ari needs to edit
         # decoder
         self.stage5d = network.stage5d
         self.stage4d = network.stage4d
-        self.stage3d = network.stage3d
 
         self.conv1 = nn.Conv2d(512, 1024, 1) # 1/16, 1024
-        self.conv2 = nn.Conv2d(256, 512, 1) # 1/8, 512
-        self.conv3 = nn.Conv2d(128, 256, 1) # 1/4, 256 
+
 
     def forward(self, f):
         hx = f
-
-        hxin = self.conv_in(hx)
         # hx = self.pool_in(hxin)
 
         # stage 1
-        hx1 = self.stage1(hxin)
+        hx1 = self.stage1(hx)
         hx = self.pool12(hx1)
 
         # stage 2
@@ -363,15 +338,11 @@ class KeyEncoder_2(nn.Module): #this is what ari needs to edit
         hx4d = self.stage4d(torch.cat((hx5dup, hx4), 1))
         hx4dup = _upsample_like(hx4d, hx3)
 
-        hx3d = self.stage3d(torch.cat((hx4dup, hx3), 1))
-        hx3dup = _upsample_like(hx3d, hx2)
-
-        hx5dup = self.conv1(hx5dup) # 1/16, 1024
-        hx4dup = self.conv2(hx4dup) # 1/8, 512
-        hx3dup = self.conv3(hx3dup) # 1/4, 256
+        hx5d = self.conv1(hx5d) # 1/16, 1024
 
         # TODO: maybe return hx4d, hx3d, hx2d
-        return  hx5dup, hx4dup, hx3dup
+        #new propsal 
+        return  hx5d, hx5dup, hx4dup
     
 
 

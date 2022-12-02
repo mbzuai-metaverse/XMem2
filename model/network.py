@@ -26,18 +26,19 @@ class XMem(nn.Module):
         self.single_object = config.get('single_object', False)
         print(f'Single object mode: {self.single_object}')
 
-        self.key_encoder = KeyEncoder()
-        self.value_encoder = ValueEncoder(self.value_dim, self.hidden_dim, self.single_object)
+        self.key_encoder = KeyEncoder_2()
+        self.value_encoder = ValueEncoder_2(self.value_dim, self.hidden_dim, self.single_object)
 
         # Projection from f16 feature space to key/value space
         self.key_proj = KeyProjection(1024, self.key_dim)
 
         self.decoder = Decoder(self.value_dim, self.hidden_dim)
 
-        if model_weights is not None:
-            self.load_weights(model_weights, init_as_zero_if_needed=True)
+        # if model_weights is not None:
+        #     self.load_weights(model_weights, init_as_zero_if_needed=True)
+        print("networkl54: disabled loading model - it was for resnet not u2net")
 
-    def encode_key(self, frame, need_sk=True, need_ek=True): 
+    def encode_key(self, frame, need_sk=True, need_ek=True): #basically just reshaping if needed, and doing forward by resnet
         # Determine input shape
         if len(frame.shape) == 5:
             # shape is b*t*c*h*w
@@ -150,8 +151,8 @@ class XMem(nn.Module):
                 self.hidden_dim = 0
             else:
                 self.hidden_dim = model_weights['decoder.hidden_update.transform.weight'].shape[0]//3
-            print(f'Hyperparameters read from the model weights: '
-                    f'C^k={self.key_dim}, C^v={self.value_dim}, C^h={self.hidden_dim}')
+            # print(f'Hyperparameters read from the model weights: '
+                    # f'C^k={self.key_dim}, C^v={self.value_dim}, C^h={self.hidden_dim}')
         else:
             model_weights = None
             # load dimensions from config or default

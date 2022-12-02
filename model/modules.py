@@ -17,7 +17,7 @@ import torch.nn.functional as F
 from model.group_modules import *
 from model import resnet
 from model.cbam import CBAM
-
+from model.u2netfast import U2NETFAST, _upsample_like
 
 class FeatureFusionBlock(nn.Module):
     def __init__(self, x_in_dim, g_in_dim, g_mid_dim, g_out_dim):
@@ -150,6 +150,126 @@ class ValueEncoder(nn.Module):
         return g, h
  
 
+class ValueEncoder_2(nn.Module):
+    def __init__(self, value_dim, hidden_dim, single_object=False, restore_path=""):
+        super().__init__()
+        
+        self.single_object = single_object
+        #insert u2net 
+        network = U2NETFAST(in_ch=5)  
+        if restore_path != "":
+            network.load_state_dict(torch.load(restore_path))
+        self.conv_in = network.conv_in
+        self.stage1 = network.stage1
+        self.pool12 = network.pool12  # see where this is happening: 1/2, 64
+        self.stage2 = network.stage2
+
+        self.pool23 = network.pool23 
+        self.stage3 = network.stage3 
+        self.pool34 = network.pool34 
+        self.stage4 = network.stage4
+        self.pool45 = network.pool45
+        self.stage5 = network.stage5
+        
+        self.pool56 = network.pool56
+        self.stage6 = network.stage6
+
+        # decoder
+        self.stage5d = network.stage5d
+        self.stage4d = network.stage4d
+        self.stage3d = network.stage3d
+        self.stage2d = network.stage2d
+
+        self.conv1 = nn.Conv2d(512, 1024, 1) # 1/16, 1024
+        self.conv2 = nn.Conv2d(256, 512, 1) # 1/8, 512
+        self.conv3 = nn.Conv2d(128, 256, 1) # 1/4, 256 
+        self.conv4 = nn.Conv2d(128, 64, 1) # 1/2, 64 for value encoder
+        self.conv5 = nn.Conv2d(1024, 64, 1) # 1/2, 64 for value encoder
+
+
+        #end u2net 
+        self.distributor = MainToGroupDistributor()
+        self.fuser = FeatureFusionBlock(1024, 256, value_dim, value_dim)
+        if hidden_dim > 0:
+            self.hidden_reinforce = HiddenReinforcer(value_dim, hidden_dim)
+        else:
+            self.hidden_reinforce = None
+
+    def forward(self, image, image_feat_f16, h, masks, others, is_deep_update=True):
+        # image_feat_f16 is the feature from the key encoder
+        if not self.single_object:
+            g = torch.stack([masks, others], 2)
+        else:
+            g = masks.unsqueeze(2)
+        g = self.distributor(image, g)
+
+        batch_size, num_objects = g.shape[:2]
+        g = g.flatten(start_dim=0, end_dim=1)
+        #insert u2net 
+
+        hx = g
+
+        hxin = self.conv_in(hx)
+        # hx = self.pool_in(hxin)
+
+        # stage 1
+        hx1 = self.stage1(hxin)
+        hx = self.pool12(hx1)
+
+        # stage 2
+        hx2 = self.stage2(hx)
+        hx = self.pool23(hx2)
+
+        # stage 3
+        hx3 = self.stage3(hx)
+        hx = self.pool34(hx3)
+
+        # stage 4
+        hx4 = self.stage4(hx)
+        hx = self.pool45(hx4)
+
+        # stage 5
+        hx5 = self.stage5(hx)
+        hx = self.pool56(hx5)
+
+        # stage 6
+        hx6 = self.stage6(hx)
+        hx6up = _upsample_like(hx6, hx5)
+
+        # -------------------- decoder --------------------
+        hx5d = self.stage5d(torch.cat((hx6up, hx5), 1))
+        hx5dup = _upsample_like(hx5d, hx4)
+        
+
+        hx4d = self.stage4d(torch.cat((hx5dup, hx4), 1))
+        hx4dup = _upsample_like(hx4d, hx3)
+
+        hx3d = self.stage3d(torch.cat((hx4dup, hx3), 1))
+        hx3dup = _upsample_like(hx3d, hx2)
+
+        hx2d = self.stage2d(torch.cat((hx3dup, hx2), 1))
+        hx2dup = _upsample_like(hx2d, hx1)
+        #return f16, f8, f4 
+
+        hx5dup_ = self.conv1(hx5dup) # 1/16, 1024
+        hx4dup_ = self.conv2(hx4dup) # 1/8, 512
+        hx3dup_ = self.conv3(hx3dup) # 1/4, 256
+        #self.conv4 = nn.Conv2d(256, 128, 1) # 1/2, 64 for value encoder
+        hx2 = self.conv4(hx2) # 1/2, 64
+        g = hx4d
+        #end u2net 
+
+        g = g.view(batch_size, num_objects, *g.shape[1:])
+        g_view = g 
+        g = self.fuser(image_feat_f16, g)
+
+        if is_deep_update and self.hidden_reinforce is not None:
+            h = self.hidden_reinforce(g, h)
+
+        return g, h
+ 
+
+
 class KeyEncoder(nn.Module):
     def __init__(self):
         super().__init__()
@@ -173,6 +293,86 @@ class KeyEncoder(nn.Module):
         f16 = self.layer3(f8) # 1/16, 1024
 
         return f16, f8, f4
+    
+
+class KeyEncoder_2(nn.Module): #this is what ari needs to edit 
+    def __init__(self, restore_path=""):
+        super().__init__()
+        network = U2NETFAST()  
+        if restore_path != "":
+            network.load_state_dict(torch.load(restore_path))
+        self.conv_in = network.conv_in
+        self.stage1 = network.stage1
+        self.pool12 = network.pool12  # see where this is happening: 1/2, 64
+        self.stage2 = network.stage2
+
+        self.pool23 = network.pool23 
+        self.stage3 = network.stage3 
+        self.pool34 = network.pool34 
+        self.stage4 = network.stage4
+        self.pool45 = network.pool45
+        self.stage5 = network.stage5
+        
+        self.pool56 = network.pool56
+        self.stage6 = network.stage6
+
+        # decoder
+        self.stage5d = network.stage5d
+        self.stage4d = network.stage4d
+        self.stage3d = network.stage3d
+
+        self.conv1 = nn.Conv2d(512, 1024, 1) # 1/16, 1024
+        self.conv2 = nn.Conv2d(256, 512, 1) # 1/8, 512
+        self.conv3 = nn.Conv2d(128, 256, 1) # 1/4, 256 
+
+    def forward(self, f):
+        hx = f
+
+        hxin = self.conv_in(hx)
+        # hx = self.pool_in(hxin)
+
+        # stage 1
+        hx1 = self.stage1(hxin)
+        hx = self.pool12(hx1)
+
+        # stage 2
+        hx2 = self.stage2(hx)
+        hx = self.pool23(hx2)
+
+        # stage 3
+        hx3 = self.stage3(hx)
+        hx = self.pool34(hx3)
+
+        # stage 4
+        hx4 = self.stage4(hx)
+        hx = self.pool45(hx4)
+
+        # stage 5
+        hx5 = self.stage5(hx)
+        hx = self.pool56(hx5)
+
+        # stage 6
+        hx6 = self.stage6(hx)
+        hx6up = _upsample_like(hx6, hx5)
+
+        # -------------------- decoder --------------------
+        hx5d = self.stage5d(torch.cat((hx6up, hx5), 1))
+        hx5dup = _upsample_like(hx5d, hx4)
+        
+
+        hx4d = self.stage4d(torch.cat((hx5dup, hx4), 1))
+        hx4dup = _upsample_like(hx4d, hx3)
+
+        hx3d = self.stage3d(torch.cat((hx4dup, hx3), 1))
+        hx3dup = _upsample_like(hx3d, hx2)
+
+        hx5dup = self.conv1(hx5dup) # 1/16, 1024
+        hx4dup = self.conv2(hx4dup) # 1/8, 512
+        hx3dup = self.conv3(hx3dup) # 1/4, 256
+
+        # TODO: maybe return hx4d, hx3d, hx2d
+        return  hx5dup, hx4dup, hx3dup
+    
 
 
 class UpsampleBlock(nn.Module):

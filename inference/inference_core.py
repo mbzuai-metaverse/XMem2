@@ -40,6 +40,12 @@ class InferenceCore:
         self.all_labels = all_labels
 
     def step(self, image, mask=None, valid_labels=None, end=False, manually_curated_masks=False):
+        # For feedback:
+        #   1. We run the model as usual
+        #   2. We get feedback: 2 lists, one with good prediction indices, one with bad
+        #   3. We force the good frames (+ annotated frames) to stay in working memory forever
+        #   4. We force the bad frames to never even get added to the working memory
+        #   5. Rerun with these settings 
         # image: 3*H*W
         # mask: num_objects*H*W or None
         self.curr_ti += 1
@@ -49,6 +55,8 @@ class InferenceCore:
             is_mem_frame = (mask is not None) and (not end)
         else:
             is_mem_frame = ((self.curr_ti-self.last_mem_ti >= self.mem_every) or (mask is not None)) and (not end)
+            
+        is_permanent_frame = mask is not None
 
         need_segment = (self.curr_ti > 0) and ((valid_labels is None) or (len(self.all_labels) != len(valid_labels)))
         is_deep_update = (
@@ -100,7 +108,7 @@ class InferenceCore:
             value, hidden = self.network.encode_value(image, f16, self.memory.get_hidden(), 
                                     pred_prob_with_bg[1:].unsqueeze(0), is_deep_update=is_deep_update)
             self.memory.add_memory(key, shrinkage, value, self.all_labels, 
-                                    selection=selection if self.enable_long_term else None)
+                                    selection=selection if self.enable_long_term else None, permanent=is_permanent_frame)
             
             self.last_mem_ti = self.curr_ti
 

@@ -824,7 +824,7 @@ class App(QWidget):
             max_work_elements = self.processor.memory.max_work_elements
             max_long_elements = self.processor.memory.max_long_elements
 
-            curr_work_elements = self.processor.memory.work_mem.size
+            curr_work_elements = self.processor.memory.temporary_work_mem.size + self.processor.memory.permanent_work_mem.size
             curr_long_elements = self.processor.memory.long_mem.size
 
             self.work_mem_gauge.setFormat(f'{curr_work_elements} / {max_work_elements}')

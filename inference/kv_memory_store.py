@@ -105,6 +105,7 @@ class KeyValueMemoryStore:
         # (because they are not consolidated)
 
         if end == 0:
+            # just sieves till the `start`
             # negative 0 would not work as the end index!
             self.k = self.k[:,:,:start]
             if self.count_usage:

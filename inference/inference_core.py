@@ -56,7 +56,8 @@ class InferenceCore:
         else:
             is_mem_frame = ((self.curr_ti-self.last_mem_ti >= self.mem_every) or (mask is not None)) and (not end)
             
-        is_permanent_frame = mask is not None
+        # is_permanent_frame = mask is not None
+        is_ignore = mask is not None  # to avoid adding permanent memory frames twice, since they are alredy in the memory
 
         need_segment = (self.curr_ti > 0) and ((valid_labels is None) or (len(self.all_labels) != len(valid_labels)))
         is_deep_update = (
@@ -108,7 +109,7 @@ class InferenceCore:
             value, hidden = self.network.encode_value(image, f16, self.memory.get_hidden(), 
                                     pred_prob_with_bg[1:].unsqueeze(0), is_deep_update=is_deep_update)
             self.memory.add_memory(key, shrinkage, value, self.all_labels, 
-                                    selection=selection if self.enable_long_term else None, permanent=is_permanent_frame)
+                                    selection=selection if self.enable_long_term else None, ignore=is_ignore)
             
             self.last_mem_ti = self.curr_ti
 
@@ -117,3 +118,21 @@ class InferenceCore:
                 self.last_deep_update_ti = self.curr_ti
                 
         return unpad(pred_prob_with_bg, self.pad)
+
+    def put_to_permanent_memory(self, image, mask):
+        image, self.pad = pad_divide_by(image, 16)
+        image = image.unsqueeze(0) # add the batch dimension
+        key, shrinkage, selection, f16, f8, f4 = self.network.encode_key(image, 
+                                            need_ek=True, 
+                                            need_sk=True)
+
+        mask, _ = pad_divide_by(mask, 16)
+
+        pred_prob_with_bg = aggregate(mask, dim=0)
+        self.memory.create_hidden_state(len(self.all_labels), key)
+
+        value, hidden = self.network.encode_value(image, f16, self.memory.get_hidden(), 
+                                    pred_prob_with_bg[1:].unsqueeze(0), is_deep_update=False)
+                                    
+        self.memory.add_memory(key, shrinkage, value, self.all_labels, 
+                                    selection=selection if self.enable_long_term else None, permanent=True)

@@ -1,6 +1,7 @@
 import os
 from os import path
 from argparse import ArgumentParser
+from pathlib import Path
 import shutil
 
 import torch
@@ -17,7 +18,7 @@ from model.network import XMem
 from inference.inference_core import InferenceCore
 
 
-def inference_on_video(how_many_extra_frames, frames_with_masks):
+def inference_on_video(frames_with_masks, dir_name=''):
     torch.autograd.set_grad_enabled(False)
 
     config = {
@@ -83,11 +84,26 @@ def inference_on_video(how_many_extra_frames, frames_with_masks):
     processor = InferenceCore(network, config=config)
     first_mask_loaded = False
 
-    for ti, data in enumerate(loader):
+    for j in frames_with_masks:
+        sample = vid_reader[j]
+        rgb = sample['rgb'].cuda()
+        msk = sample['mask']
+        info = sample['info']
+        need_resize = info['need_resize']
+
+        # https://github.com/hkchengrex/XMem/issues/21 just make exhaustive = True
+        msk, labels = mapper.convert_mask(msk, exhaustive=True)
+        msk = torch.Tensor(msk).cuda()
+        if need_resize:
+            msk = vid_reader.resize_mask(msk.unsqueeze(0))[0]
+
+        processor.set_all_labels(list(mapper.remappings.values()))
+        processor.put_to_permanent_memory(rgb, msk)
+
+    for ti, data in enumerate(tqdm(loader)):
         with torch.cuda.amp.autocast(enabled=True):
             rgb = data['rgb'].cuda()[0]
             
-            # TODO: - only use % of the frames
             if ti in frames_with_masks:
                 msk = data['mask']
             else:
@@ -103,9 +119,9 @@ def inference_on_video(how_many_extra_frames, frames_with_masks):
             Seems to be very similar in testing as my previous timing method 
             with two cuda sync + time.time() in STCN though 
             """
-            start = torch.cuda.Event(enable_timing=True)
-            end = torch.cuda.Event(enable_timing=True)
-            start.record()
+            # start = torch.cuda.Event(enable_timing=True)
+            # end = torch.cuda.Event(enable_timing=True)
+            # start.record()
 
             if not first_mask_loaded:
                 if msk is not None:
@@ -139,9 +155,9 @@ def inference_on_video(how_many_extra_frames, frames_with_masks):
             if need_resize:
                 prob = F.interpolate(prob.unsqueeze(1), shape, mode='bilinear', align_corners=False)[:,0]
 
-            end.record()
-            torch.cuda.synchronize()
-            total_process_time += (start.elapsed_time(end)/1000)
+            # end.record()
+            # torch.cuda.synchronize()
+            # total_process_time += (start.elapsed_time(end)/1000)
             total_frames += 1
 
             if False:

@@ -166,7 +166,7 @@ class MemoryManager:
 
         return all_readout_mem.view(all_readout_mem.shape[0], self.CV, h, w)
 
-    def add_memory(self, key, shrinkage, value, objects, selection=None, permanent=False):
+    def add_memory(self, key, shrinkage, value, objects, selection=None, permanent=False, ignore=False):
         # key: 1*C*H*W
         # value: 1*num_objects*C*H*W
         # objects contain a list of object indices
@@ -193,13 +193,15 @@ class MemoryManager:
                 warnings.warn('the selection factor is only needed in long-term mode', UserWarning)
             selection = selection.flatten(start_dim=2)
 
-        if permanent:
+        if ignore:
+            pass # all permanent frames are pre-placed into permanent memory 
+        elif permanent:
             self.permanent_work_mem.add(key, value, shrinkage, selection, objects)
         else:
             self.temporary_work_mem.add(key, value, shrinkage, selection, objects)
             
         if not self.temporary_work_mem.engaged():
-            # first frame goes in goth to avoid crashes
+            # first frame goes in both to avoid crashes
             self.temporary_work_mem.add(key, value, shrinkage, selection, objects)
 
         # long-term memory cleanup

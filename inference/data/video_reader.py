@@ -5,6 +5,7 @@ from torch.utils.data.dataset import Dataset
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode
 import torch.nn.functional as F
+import torchvision.transforms.functional as FT
 from PIL import Image
 import numpy as np
 
@@ -71,6 +72,7 @@ class VideoReader(Dataset):
             shape = np.array(size_im).shape[:2]
 
         gt_path = path.join(self.mask_dir, frame[:-4]+'.png')
+        data['raw_image_tensor'] = FT.to_tensor(img)  # for dataloaders it cannot be raw PIL.Image, only tensors
         img = self.im_transform(img)
 
         load_mask = self.use_all_mask or (gt_path == self.first_gt_path)

@@ -194,15 +194,22 @@ class MemoryManager:
             selection = selection.flatten(start_dim=2)
 
         if ignore:
-            pass # all permanent frames are pre-placed into permanent memory 
+            pass # all permanent frames are pre-placed into permanent memory (when using our memory modification) 
+                # also ignores the first frame (#0) when using original memory mechanism, since it's already in the permanent memory
         elif permanent:
             self.permanent_work_mem.add(key, value, shrinkage, selection, objects)
         else:
             self.temporary_work_mem.add(key, value, shrinkage, selection, objects)
             
         if not self.temporary_work_mem.engaged():
-            # first frame goes in both to avoid crashes
-            self.temporary_work_mem.add(key, value, shrinkage, selection, objects)
+            # first frame; we need to have both memories engaged to avoid crashes when concating
+            # so we just initialize the temporary one with an empty tensor
+            key0 = key[..., 0:0]
+            value0 = value[..., 0:0]
+            shrinkage0 = shrinkage[..., 0:0]
+            selection0 = selection[..., 0:0]
+            
+            self.temporary_work_mem.add(key0, value0, shrinkage0, selection0, objects)
 
         # long-term memory cleanup
         if self.enable_long_term:

@@ -39,7 +39,7 @@ class InferenceCore:
         # self.all_labels = [l.item() for l in all_labels]
         self.all_labels = all_labels
 
-    def step(self, image, mask=None, valid_labels=None, end=False, manually_curated_masks=False):
+    def step(self, image, mask=None, valid_labels=None, end=False, manually_curated_masks=False, disable_memory_updates=False, do_not_add_mask_to_memory=False):
         # For feedback:
         #   1. We run the model as usual
         #   2. We get feedback: 2 lists, one with good prediction indices, one with bad
@@ -55,9 +55,8 @@ class InferenceCore:
             is_mem_frame = (mask is not None) and (not end)
         else:
             is_mem_frame = ((self.curr_ti-self.last_mem_ti >= self.mem_every) or (mask is not None)) and (not end)
-            
-        # is_permanent_frame = mask is not None
-        is_ignore = mask is not None  # to avoid adding permanent memory frames twice, since they are alredy in the memory
+
+        is_ignore = do_not_add_mask_to_memory  # to avoid adding permanent memory frames twice, since they are alredy in the memory
 
         need_segment = (self.curr_ti > 0) and ((valid_labels is None) or (len(self.all_labels) != len(valid_labels)))
         is_deep_update = (
@@ -70,6 +69,11 @@ class InferenceCore:
                                                     need_ek=(self.enable_long_term or need_segment), 
                                                     need_sk=is_mem_frame)
         multi_scale_features = (f16, f8, f4)
+
+        if disable_memory_updates:
+            is_normal_update = False
+            is_deep_update = False
+            is_mem_frame = False
 
         # segment the current frame is needed
         if need_segment:
@@ -102,7 +106,8 @@ class InferenceCore:
             pred_prob_with_bg = aggregate(mask, dim=0)
 
             # also create new hidden states
-            self.memory.create_hidden_state(len(self.all_labels), key)
+            if not disable_memory_updates:
+                self.memory.create_hidden_state(len(self.all_labels), key)
 
         # save as memory if needed
         if is_mem_frame:

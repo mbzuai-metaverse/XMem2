@@ -123,7 +123,6 @@ dependencies:
     - tensorboard-data-server==0.6.1
     - tensorboard-plugin-wit==1.8.1
     - termcolor==2.2.0
-    - thinplate==1.0.0
     - tomli==2.0.1
     - torchvision==0.13.1
     - tqdm==4.64.1

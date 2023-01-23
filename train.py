@@ -20,7 +20,7 @@ from util.configuration import Configuration
 from util.load_subset import load_sub_davis, load_sub_yv
 
 import sys
-sys.path.append('/l/users/ariana.venegas/Documents/Documents/RESEARCH/FlowFormer-Official')
+sys.path.append('/home/ariana/RESEARCH/FlowFormer-Official')
 print (sys.path)
 from visualize_flow_xmem import compute_flow, build_model
 """

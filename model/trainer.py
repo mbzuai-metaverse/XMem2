@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from model.network import XMem
+from model.network import XMem, XMem_OF
 from model.losses import LossComputer
 from util.log_integrator import Integrator
 from util.image_saver import pool_pairs
@@ -29,7 +29,7 @@ class XMemTrainer:
         #     XMem(config).cuda(), 
         #     device_ids=[local_rank], output_device=local_rank, broadcast_buffers=False)
 
-        self.XMem = XMem(config).cuda()
+        self.XMem = XMem_OF(config).cuda()
 
         # Set up logger when local_rank=0
         self.logger = logger
@@ -172,7 +172,10 @@ class XMemTrainer:
         
         os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
         model_path = f'{self.save_path}_{it}.pth'
-        torch.save(self.XMem.module.state_dict(), model_path)
+        try: 
+            torch.save(self.XMem.module.state_dict(), model_path)
+        except: 
+            torch.save(self.XMem.state_dict(), model_path)
         print(f'Network saved to {model_path}.')
 
     def save_checkpoint(self, it):

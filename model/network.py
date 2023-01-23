@@ -203,7 +203,7 @@ class XMem(nn.Module):
             self.load_state_dict(src_dict)
 
 
-class XMem_2(nn.Module):
+class XMem_OF(nn.Module):
     def __init__(self, config, model_path=None, map_location=None):
         """
         model_path/map_location are used in evaluation only
@@ -316,16 +316,12 @@ class XMem_2(nn.Module):
 
     def forward(self, mode, *args, **kwargs):
         if mode == 'encode_key':
-            import pdb
-            pdb.set_trace()
             return self.encode_key(*args, **kwargs)
         elif mode == 'encode_value':
             return self.encode_value(*args, **kwargs)
         elif mode == 'read_memory':
             return self.read_memory(*args, **kwargs)
         elif mode == 'segment':
-            import pdb
-            pdb.set_trace()
             return self.segment(*args, **kwargs)
         else:
             raise NotImplementedError
@@ -396,7 +392,3 @@ class XMem_2(nn.Module):
             self.load_state_dict(src_dict['network'])
         except: 
             self.load_state_dict(src_dict)
-<<<<<<< HEAD
-=======
-
->>>>>>> 63c16ec5f969f4624e9e89f602a9091a94aa43bc

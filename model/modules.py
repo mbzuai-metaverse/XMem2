@@ -84,6 +84,7 @@ class HiddenReinforcer(nn.Module):
         nn.init.xavier_normal_(self.transform.weight)
 
     def forward(self, g, h):
+        h = h.cuda()
         g = torch.cat([g, h], 2)
 
         # defined slightly differently than standard GRU, 
@@ -381,10 +382,13 @@ class KeyProjection(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, val_dim, hidden_dim):
+    def __init__(self, val_dim, hidden_dim, optical_flow_dim=2):
         super().__init__()
 
-        self.fuser = FeatureFusionBlock(1024, val_dim+hidden_dim, 512, 512)
+        self.fuser = FeatureFusionBlock(1024, val_dim+hidden_dim+optical_flow_dim, 512, 512) #value dim comes twice because im using 
+        #value dim as the size of features from optical flow 
+        # (but my question is, if I remove that, then, what happens
+        # to the weights of the trained model???? )
         if hidden_dim > 0:
             self.hidden_update = HiddenUpdater([512, 256, 256+1], 256, hidden_dim)
         else:
@@ -395,13 +399,15 @@ class Decoder(nn.Module):
 
         self.pred = nn.Conv2d(256, 1, kernel_size=3, padding=1, stride=1)
 
-    def forward(self, f16, f8, f4, hidden_state, memory_readout, h_out=True):
+    def forward(self, f16, f8, f4, hidden_state, memory_readout, h_out=True, optical_flow=None):
         batch_size, num_objects = memory_readout.shape[:2]
-
+        optical_flow = optical_flow.permute([0, 1, 4, 2, 3])
+        optical_flow_2 = F.interpolate(optical_flow[:, 0:1, :].squeeze(), (24, 24))[:, None]
+        
         if self.hidden_update is not None:
-            g16 = self.fuser(f16, torch.cat([memory_readout, hidden_state], 2))
+            g16 = self.fuser(f16, torch.cat([memory_readout, hidden_state, optical_flow_2], 2))
         else:
-            g16 = self.fuser(f16, memory_readout)
+            g16 = self.fuser(f16,  torch.cat([memory_readout, optical_flow_2], 2))
 
         g8 = self.up_16_8(f8, g16)
         g4 = self.up_8_4(f4, g8)

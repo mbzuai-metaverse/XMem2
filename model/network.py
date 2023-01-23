@@ -15,7 +15,7 @@ from model.memory_util import *
 
 
 class XMem(nn.Module):
-    def __init__(self, config, model_path=None, map_location=None):
+    def __init__(self, config, model_path=None, map_location=None, optical_flow_dim=None):
         """
         model_path/map_location are used in evaluation only
         map_location is for converting models saved in cuda to cpu
@@ -25,6 +25,7 @@ class XMem(nn.Module):
 
         self.single_object = config.get('single_object', False)
         print(f'Single object mode: {self.single_object}')
+        
 
         self.key_encoder = KeyEncoder()
         self.value_encoder = ValueEncoder(self.value_dim, self.hidden_dim, self.single_object)
@@ -214,8 +215,14 @@ class XMem_2(nn.Module):
         self.single_object = config.get('single_object', False)
         print(f'Single object mode: {self.single_object}')
 
-        self.key_encoder = KeyEncoder()
-        self.value_encoder = ValueEncoder(self.value_dim, self.hidden_dim, self.single_object)
+        # self.key_encoder = KeyEncoder()
+        # self.value_encoder = ValueEncoder(self.value_dim, self.hidden_dim, self.single_object)
+        #uncomment to normal xmem 
+        # self.key_encoder = KeyEncoder()
+        # self.value_encoder = ValueEncoder(self.value_dim, self.hidden_dim, self.single_object)
+        #uncomment to run as u2net 
+        self.key_encoder = KeyEncoder_2(restore_path=config['restore_path'])
+        self.value_encoder = ValueEncoder_2(self.value_dim, self.hidden_dim, self.single_object, restore_path=config['restore_path'])
 
         # Projection from f16 feature space to key/value space
         self.key_proj = KeyProjection(1024, self.key_dim)
@@ -294,9 +301,8 @@ class XMem_2(nn.Module):
         return memory
 
     def segment(self, multi_scale_features, memory_readout,
-                    hidden_state, selector=None, h_out=True, strip_bg=True): 
-
-        hidden_state, logits = self.decoder(*multi_scale_features, hidden_state, memory_readout, h_out=h_out)
+                    hidden_state, selector=None, h_out=True, strip_bg=True, optical_flow=None): 
+        hidden_state, logits = self.decoder(*multi_scale_features, hidden_state, memory_readout, h_out=h_out, optical_flow=optical_flow)
         prob = torch.sigmoid(logits)
         if selector is not None:
             prob = prob * selector
@@ -365,7 +371,6 @@ class XMem_2(nn.Module):
                 print(f'hidden_dim not found in config. Set to default {self.hidden_dim}')
             else:
                 self.hidden_dim = config['hidden_dim']
-
             self.disable_hidden = (self.hidden_dim <= 0)
 
         config['key_dim'] = self.key_dim
@@ -391,3 +396,7 @@ class XMem_2(nn.Module):
             self.load_state_dict(src_dict['network'])
         except: 
             self.load_state_dict(src_dict)
+<<<<<<< HEAD
+=======
+
+>>>>>>> 63c16ec5f969f4624e9e89f602a9091a94aa43bc

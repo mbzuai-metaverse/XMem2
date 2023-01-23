@@ -57,12 +57,12 @@ class Configuration():
         parser.add_argument('--s1_end_warm', default=70000, type=int)
 
         # Stage 2, DAVIS+YoutubeVOS, longer
-        parser.add_argument('--s2_batch_size', default=8, type=int)
+        parser.add_argument('--s2_batch_size', default=1, type=int)
         parser.add_argument('--s2_iterations', default=150000, type=int)
         # fine-tune means fewer augmentations to train the sensory memory
         parser.add_argument('--s2_finetune', default=10000, type=int)
         parser.add_argument('--s2_steps', nargs="*", default=[120000], type=int)
-        parser.add_argument('--s2_lr', help='Initial learning rate', default=1e-5, type=float)
+        parser.add_argument('--s2_lr', help='Initial learning rate', default=1.25e-6, type=float)
         parser.add_argument('--s2_num_ref_frames', default=3, type=int)
         parser.add_argument('--s2_num_frames', default=8, type=int)
         parser.add_argument('--s2_start_warm', default=20000, type=int)

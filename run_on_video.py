@@ -36,7 +36,7 @@ def inference_on_video(how_many_extra_frames, video_name):
         'max_mid_term_frames': 10,
         'mem_every': 10,
         'min_mid_term_frames': 5,
-        'model': 'saves/Jan11_12.13.03_retrain_s2/Jan11_12.13.03_retrain_s2_850000.pth', # './saves/XMem.pth',
+        'model': 'saves/Dec20_01.38.26_retrain_s2/Dec20_01.38.26_retrain_s2_300000.pth', # './saves/XMem.pth',
         'no_amp': False,
         'num_objects': 1,
         'num_prototypes': 128,
@@ -97,7 +97,7 @@ def inference_on_video(how_many_extra_frames, video_name):
     for ti, data in enumerate(loader):
         with torch.cuda.amp.autocast(enabled=True):
             rgb = data['rgb'].cuda()[0]
-            
+            optical_flow = data['optical_flow'].cuda()[0]
             # TODO: - only use % of the frames
             if ti in frames_with_masks:
                 msk = data['mask']
@@ -144,7 +144,7 @@ def inference_on_video(how_many_extra_frames, video_name):
 
             # Run the model on this frame
             # TODO: still running inference even on frames with masks?
-            prob = processor.step(rgb, msk, labels, end=(ti==vid_length-1), manually_curated_masks=False)
+            prob = processor.step_of(rgb, msk, labels, end=(ti==vid_length-1), manually_curated_masks=False, optical_flow=optical_flow)
 
             # Upsample to original size if needed
             if need_resize:

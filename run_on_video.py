@@ -17,7 +17,7 @@ from scipy.stats import entropy
 from baal.active.heuristics import BALD
 import torchvision.transforms.functional as FT
 
-from inference.active_learning import get_determenistic_augmentations, select_most_uncertain_frame, select_n_frame_candidates
+from inference.active_learning import get_determenistic_augmentations, select_most_uncertain_frame, select_n_frame_candidates, compute_disparity as compute_disparity_func, select_n_frame_candidates_no_neighbours_simple
 from inference.data.test_datasets import LongTestDataset, DAVISTestDataset, YouTubeVOSTestDataset
 from inference.data.mask_mapper import MaskMapper
 from inference.data.video_reader import VideoReader
@@ -29,6 +29,7 @@ from util.tensor_util import compute_tensor_iou
 def inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_out_path, 
                         original_memory_mechanism=False,
                         compute_iou = False, compute_uncertainty = False, manually_curated_masks=False, print_progress=True,
+                        augment_images_with_masks=False,
                         uncertainty_name: str = None,
                         overwrite_config: dict = None):
     torch.autograd.set_grad_enabled(False)
@@ -55,7 +56,7 @@ def inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_out
         'top_k': 30,
         'value_dim': 512,
         # 'video': '../VIDEOS/Maksym_frontal_simple.mp4',
-        'masks_out_path': masks_out_path,#f'../VIDEOS/RESULTS/XMem_feedback/thanks_two_face_5_frames/',
+        'masks_out_path': masks_out_path,#f'../VIDEOS/RESULTS/XMem_memory/thanks_two_face_5_frames/',
         # 'masks_out_path': f'../VIDEOS/RESULTS/XMem/WhichFramesWithPreds/1/{dir_name}/{"_".join(map(str, frames_with_masks))}_frames_provided',
         # 'masks_out_path': f'../VIDEOS/RESULTS/XMem/DAVIS_2017/WhichFrames/1/{dir_name}/{len(frames_with_masks) - 1}_extra_frames',
         'workspace': None,
@@ -65,6 +66,14 @@ def inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_out
     if overwrite_config is not None:
         config.update(overwrite_config)
 
+    if compute_uncertainty:
+        assert uncertainty_name is not None
+        uncertainty_name = uncertainty_name.lower()
+        assert uncertainty_name in {'entropy', 'bald', 'disparity', 'disparity_large'}
+        compute_disparity = uncertainty_name.startswith('disparity') 
+    else:
+        compute_disparity = False
+    
     vid_reader = VideoReader(
         "", 
         imgs_in_path, #f'/home/maksym/RESEARCH/VIDEOS/thanks_no_ears_5_annot/JPEGImages',
@@ -105,6 +114,7 @@ def inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_out
     for j in frames_to_put_in_permanent_memory:
         sample = vid_reader[j]
         rgb = sample['rgb'].cuda()
+        rgb_raw_tensor = sample['raw_image_tensor'].cpu()
         msk = sample['mask']
         info = sample['info']
         need_resize = info['need_resize']
@@ -118,14 +128,21 @@ def inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_out
         processor.set_all_labels(list(mapper.remappings.values()))
         processor.put_to_permanent_memory(rgb, msk)
         
+        if augment_images_with_masks:
+            augs = get_determenistic_augmentations(rgb.shape, msk, subset='best_all')
+            rgb_raw = FT.to_pil_image(rgb_raw_tensor)
+            
+            for img_aug, mask_aug in augs:
+                # tensor -> PIL.Image -> tensor -> whatever normalization vid_reader applies
+                rgb_aug = vid_reader.im_transform(img_aug(rgb_raw)).cuda()
+                
+                msk_aug = mask_aug(msk)
+                
+                processor.put_to_permanent_memory(rgb_aug, msk_aug)
+        
     stats = []
 
-    if compute_uncertainty:
-        assert uncertainty_name is not None
-        uncertainty_name = uncertainty_name.lower()
-        assert uncertainty_name in {'entropy', 'bald'}
-    
-    if uncertainty_name == 'bald':
+    if compute_uncertainty and uncertainty_name == 'bald':
         bald = BALD()
     
     for ti, data in enumerate(tqdm(loader, disable=not print_progress)):
@@ -169,13 +186,18 @@ def inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_out
             else:
                 labels = None
             
-            if compute_uncertainty and uncertainty_name == 'bald':
+            if (compute_uncertainty and uncertainty_name == 'bald') or compute_disparity:
                 dry_run_preds = []
-                augs = get_determenistic_augmentations()
-                for aug in augs:
+                augged_images = []
+                augs = get_determenistic_augmentations(subset='original_only')
+                rgb_raw = FT.to_pil_image(rgb_raw_tensor)
+                for img_aug, mask_aug in augs:
                     # tensor -> PIL.Image -> tensor -> whatever normalization vid_reader applies
-                    rgb_raw = FT.to_pil_image(rgb_raw_tensor)
-                    rgb_aug = vid_reader.im_transform(aug(rgb_raw)).cuda()
+                    augged_img = img_aug(rgb_raw)
+                    augged_images.append(augged_img)
+                    rgb_aug = vid_reader.im_transform(augged_img).cuda()
+                    
+                    msk = mask_aug(msk)  # does not do anything, since original_only=True augmentations don't alter the mask at all
                                     
                     dry_run_prob = processor.step(rgb_aug, msk, labels, end=(ti==vid_length-1), manually_curated_masks=manually_curated_masks, disable_memory_updates=True)
                     dry_run_preds.append(dry_run_prob.cpu())
@@ -195,12 +217,22 @@ def inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_out
                     all_samples = torch.stack([x.unsqueeze(0) for x in dry_run_preds + [prob.cpu()]], dim=-1).numpy()
                     score = bald.compute_score(all_samples)
                     # TODO: can also return the exact pixels for every frame? As a suggestion on what to label
-                    curr_stat['bald'] = float(np.squeeze(score).mean())
+                    curr_stat['bald'] = float(np.squeeze(score).mean())              
+                elif compute_disparity:
+                    # p_out_disparity = Path('output/masks_disparity/')
+                    # if ti in {0, 200, 500, 900, 1100, 1300, 1450, 1600}:
+                    #     output_save_path = p_out_disparity / str(ti)
+                    # else:
+                    #     output_save_path = None
+                    
+                    disparity_stats = compute_disparity_func(predictions=[prob] + dry_run_preds, augs=[img_aug for img_aug, _ in augs], images=[rgb_raw] + augged_images, output_save_path=None)
+                    curr_stat['disparity'] = float(disparity_stats['avg'])
+                    curr_stat['disparity_large'] = float(disparity_stats['large'])
                 else:
                     e = entropy(prob.cpu())
                     e_mean = np.mean(e)
                     curr_stat['entropy'] = float(e_mean)
-
+                  
             # Upsample to original size if needed
             if need_resize:
                 prob = F.interpolate(prob.unsqueeze(1), shape, mode='bilinear', align_corners=False)[:,0]
@@ -247,25 +279,26 @@ def inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_out
     return pd.DataFrame(stats)
 
 
-def run_active_learning(imgs_in_path, masks_in_path, masks_out_path, num_extra_frames: int, uncertainty_name: str, csv_out_path: str = None, mode='batched', use_cache=False):
+def run_active_learning(imgs_in_path, masks_in_path, masks_out_path, num_extra_frames: int, uncertainty_name: str, csv_out_path: str = None, mode='batched', use_cache=False, **kwargs):
     """
     mode:str
         Possible values:
-            'uniform': uniformly distributed indices (np.linspace(0, num_total_frames, `num_extra_frames`).astype(int))
+            'uniform': uniformly distributed indices np.linspace(0, `num_total_frames` - 1, `num_extra_frames` + 1).astype(int)
             'random': pick `num_extra_frames` random frames (cannot include first or last ones)
             'batched': Pick only `num_extra_frames` best frames
             'iterative': Pick only 1 best frame instead of `num_extra_frames`, repeat `num_extra_frames` times
     """
 
     assert mode in {'uniform', 'random', 'batched', 'iterative'}
-    assert uncertainty_name in {'entropy', 'bald'}
+    assert uncertainty_name in {'entropy', 'bald', 'disparity', 'disparity_large'}
     
     if mode == 'uniform':
         num_total_frames = len(os.listdir(imgs_in_path))
         # linspace is [a, b] (inclusive)
-        frames_with_masks = np.linspace(0, num_total_frames - 1, num_extra_frames).astype(int)
+        frames_with_masks = np.linspace(0, num_total_frames - 1, num_extra_frames + 1).astype(int)
     elif mode == 'random':
         num_total_frames = len(os.listdir(imgs_in_path))
+        np.random.seed(1)
         extra_frames = np.random.choice(np.arange(1, num_total_frames), size=num_extra_frames, replace=False).tolist()
         frames_with_masks = sorted([0] + extra_frames)
     elif mode == 'batched':
@@ -285,8 +318,10 @@ def run_active_learning(imgs_in_path, masks_in_path, masks_out_path, num_extra_f
         )
         
         df.to_csv(baseline_out / 'stats.csv', index=False)
-
-        candidates = select_n_frame_candidates(df, n=num_extra_frames, uncertainty_name=uncertainty_name)
+        if uncertainty_name == 'disparity_large':
+            candidates = select_n_frame_candidates_no_neighbours_simple(df, n=num_extra_frames, uncertainty_name=uncertainty_name)
+        else:
+            candidates = select_n_frame_candidates(df, n=num_extra_frames, uncertainty_name=uncertainty_name)
 
         extra_frames = [int(candidate['index']) for candidate in candidates]
 
@@ -307,7 +342,7 @@ def run_active_learning(imgs_in_path, masks_in_path, masks_out_path, num_extra_f
                 overwrite_config={'save_masks': False},
             )
 
-            max_frame = select_most_uncertain_frame(df)
+            max_frame = select_most_uncertain_frame(df, uncertainty_name=uncertainty_name)
             extra_frames.append(max_frame['index'])
 
         # keep unsorted to preserve order of the choices
@@ -324,7 +359,7 @@ def run_active_learning(imgs_in_path, masks_in_path, masks_out_path, num_extra_f
                 compute_iou=True,
                 print_progress=False,
                 uncertainty_name=uncertainty_name,
-                manually_curated_masks=False,                
+                **kwargs             
         )
 
         if csv_out_path is not None:
@@ -338,9 +373,12 @@ def run_active_learning(imgs_in_path, masks_in_path, masks_out_path, num_extra_f
     return final_df, frames_with_masks
 
 
-def eval_active_learning(dataset_path: str, out_path: str, num_extra_frames: int, uncertainty_name: str):
-    assert uncertainty_name in {'entropy', 'bald'}
+def eval_active_learning(dataset_path: str, out_path: str, num_extra_frames: int, uncertainty_name: str, modes: list = None, **kwargs):
+    assert uncertainty_name in {'entropy', 'bald', 'disparity', 'disparity_large'}
     
+    if modes is None:
+        modes = ['uniform', 'random', 'batched', 'iterative']
+        
     p_in_ds = Path(dataset_path)
     p_out = Path(out_path)
 
@@ -351,13 +389,13 @@ def eval_active_learning(dataset_path: str, out_path: str, num_extra_frames: int
 
         p_video_out_general = p_out / f'Active_learning_{uncertainty_name}' / video_name / f'{num_extra_frames}_extra_frames'
 
-        for mode in ['uniform', 'random', 'batched', 'iterative']:
+        for mode in modes:
             curr_video_stat = {'video': video_name}
             p_out_masks = p_video_out_general / mode / 'masks'
             p_out_stats = p_video_out_general / mode / 'stats.csv'
 
             stats, frames_with_masks = run_active_learning(p_video_imgs_in, p_video_masks_in, p_out_masks, 
-                    num_extra_frames=num_extra_frames, csv_out_path=p_out_stats, mode=mode, use_cache=True)
+                    num_extra_frames=num_extra_frames, csv_out_path=p_out_stats, mode=mode, uncertainty_name=uncertainty_name, use_cache=False, **kwargs)
 
             stats = stats[stats['mask_provided'] == False]  # remove stats for frames with given masks
             for i in range(1, len(frames_with_masks) + 1):
@@ -375,9 +413,46 @@ def eval_active_learning(dataset_path: str, out_path: str, num_extra_frames: int
 
 if __name__ == '__main__':
     pass
-    # eval_active_learning('/home/maksym/RESEARCH/VIDEOS/LVOS_dataset/valid', 
-    #                      '/home/maksym/RESEARCH/VIDEOS/RESULTS/XMem_feedback/permanent_work_memory/LVOS',
-                        #  5)
+    # inference_on_video(
+    #             imgs_in_path='../VIDEOS/thanks_no_ears_5_annot/JPEGImages',
+    #             masks_in_path='../VIDEOS/thanks_no_ears_5_annot/annotations_3_face',
+    #             masks_out_path='../VIDEOS/RESULTS/XMem_memory/permanent_work_memory/thanks_no_ears_5_annot/annotations_3_face_5_frames',
+    #             frames_with_masks=[0, 625, 785, 1300, 1488],
+    #             compute_uncertainty=False,
+    #             compute_iou=False,
+    #             print_progress=True,
+    #             manually_curated_masks=False,
+    #     )
+    # df.to_csv('output/disparity/disparity.csv', index=False)
+    # exit(0)
+    # from inference import active_learning as AL
+    
+    # img_size = (3, 480, 853)
+    # test_mask = FT.to_tensor(Image.open('test.png'))
+    # for i in tqdm(range(0, 10)):
+    #     eval_active_learning('../VIDEOS/LVOS_dataset/valid', 
+    #                          f'../VIDEOS/RESULTS/XMem_memory/permanent_work_memory/LVOS_old_scaling/{i}_extra_frames',
+    #                          i,
+    #                          uncertainty_name='entropy',
+    #                          modes=['uniform'],
+    #                          augment_images_with_mask=False,
+    #                          original_memory_mechanism=True)
+
+    # eval_active_learning('../VIDEOS/LVOS_dataset/valid', 
+    #                      '../VIDEOS/RESULTS/XMem_memory/permanent_work_memory/LVOS_best_all_augs_in_memory_fixed',
+    #                      5,
+    #                      uncertainty_name='entropy',
+    #                      modes=['uniform'],
+    #                      augment_images_with_masks=True,
+    #                      )
+        
+    # eval_active_learning('../VIDEOS/LVOS_dataset/valid', 
+    #                      '../VIDEOS/RESULTS/XMem_memory/LVOS/LVOS_disparity',
+    #                      5,
+    #                      uncertainty_name='disparity_large',
+    #                      modes=['random', 'uniform', 'batched', 'iterative'],
+    #                      augment_images_with_masks=False)
+    
 
 
     # res, frames_with_masks = run_active_learning('/home/maksym/RESEARCH/VIDEOS/LVOS_dataset/valid/JPEGImages/0tCWPOrc',

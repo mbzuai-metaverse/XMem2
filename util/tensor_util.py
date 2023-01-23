@@ -1,4 +1,5 @@
 import torch.nn.functional as F
+import torch
 
 
 def compute_tensor_iu(seg, gt):
@@ -45,3 +46,14 @@ def unpad(img, pad):
     else:
         raise NotImplementedError
     return img
+
+def get_bbox_from_mask(mask):
+    mask = torch.squeeze(mask)
+    assert mask.ndim == 2
+    
+    nonzero = torch.nonzero(mask)
+    
+    min_y, min_x = nonzero.min(dim=0).values
+    max_y, max_x = nonzero.max(dim=0).values
+    
+    return int(min_y), int(min_x), int(max_y), int(max_x)

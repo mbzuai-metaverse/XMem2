@@ -8,7 +8,7 @@ import torch
 
 
 class Integrator:
-    def __init__(self, logger, distributed=True, local_rank=0, world_size=1):
+    def __init__(self, logger, distributed=False, local_rank=0, world_size=1):
         self.values = {}
         self.counts = {}
         self.hooks  = [] # List is used here to maintain insertion order

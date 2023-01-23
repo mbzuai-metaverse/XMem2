@@ -1,3 +1,4 @@
+from dataclasses import replace
 import os
 from os import path
 from argparse import ArgumentParser
@@ -17,7 +18,9 @@ from model.network import XMem
 from inference.inference_core import InferenceCore
 
 
-def inference_on_video(how_many_extra_frames):
+def inference_on_video(how_many_extra_frames, video_name):
+
+
     torch.autograd.set_grad_enabled(False)
 
     config = {
@@ -33,7 +36,7 @@ def inference_on_video(how_many_extra_frames):
         'max_mid_term_frames': 10,
         'mem_every': 10,
         'min_mid_term_frames': 5,
-        'model': './saves/XMem.pth',
+        'model': 'saves/Dec20_01.38.26_retrain_s2/Dec20_01.38.26_retrain_s2_300000.pth', # './saves/XMem.pth',
         'no_amp': False,
         'num_objects': 1,
         'num_prototypes': 128,
@@ -41,30 +44,33 @@ def inference_on_video(how_many_extra_frames):
         'size': 480,
         'top_k': 30,
         'value_dim': 512,
-        'video': '../VIDEOS/Maksym_frontal_simple.mp4',
-        'masks_out_path': f'../VIDEOS/RESULTS/XMem_u2net/lips/MaximumPossibleIoU/{how_many_extra_frames}_extra_frames',
+        'video': f'../VIDEOS/DAVIS-2017-trainval-480p/DAVIS/2017_train_val_split/val/JPEGImages/{video_name}',
+        'masks_out_path': f'../VIDEOS/RESULTS/XMem_u2net/DAVIS-2017/trained_final/{how_many_extra_frames}_extra_frames',
         'workspace': None,
         'save_masks': True,
         'restore_path':  './saves/u2net/u2net.pth'
     }
 
-    model_path = config['model']
+    model_path = ""#config['model']
     network = XMem(config, model_path).cuda().eval()
-    if model_path is not None:
-        print("run_on_videol53: disabled loading model - it was for resnet not u2net")
-        # model_weights = torch.load(model_path)
-        # network.load_weights(model_weights, init_as_zero_if_needed=True)
-    else:
-        print('No model loaded.')
-
+    import numpy as np
+    model_parameters = filter(lambda p: p.requires_grad, network.parameters())
+    params = sum([np.prod(p.size()) for p in model_parameters])
+    # if model_path is not None:
+    #     #print("run_on_videol53: disabled loading model - it was for resnet not u2net")
+    #     model_weights = torch.load(model_path)
+    #     network.load_weights(model_weights, init_as_zero_if_needed=True)
+    # else:
+    #     print('No model loaded.')
+    
     total_process_time = 0
     total_frames = 0
 
     # Start eval
     vid_reader = VideoReader(
-        "Maksym_frontal_simple", 
-        '/home/maksym/RESEARCH/VIDEOS/IVOS_Maksym_frontal_simple_14_Nov_2022_DATA/JPEGImages',
-        '/home/maksym/RESEARCH/VIDEOS/IVOS_Maksym_frontal_simple_14_Nov_2022_DATA/SegmentationMaskBinary',
+        f'{video_name}', 
+        f'/l/users/ariana.venegas/Documents/Documents/RESEARCH/VIDEOS/DAVIS-2017-trainval-480p/DAVIS/2017_train_val_split/val/JPEGImages/{video_name}',
+        f'/l/users/ariana.venegas/Documents/Documents/RESEARCH/VIDEOS/DAVIS-2017-trainval-480p/DAVIS/2017_train_val_split/val/Annotations_chosen/BINARIZED/{video_name}',
         size=config['size'],
         use_all_mask=True
     )
@@ -91,7 +97,7 @@ def inference_on_video(how_many_extra_frames):
     for ti, data in enumerate(loader):
         with torch.cuda.amp.autocast(enabled=True):
             rgb = data['rgb'].cuda()[0]
-            
+            optical_flow = data['optical_flow'].cuda()[0]
             # TODO: - only use % of the frames
             if ti in frames_with_masks:
                 msk = data['mask']
@@ -138,7 +144,7 @@ def inference_on_video(how_many_extra_frames):
 
             # Run the model on this frame
             # TODO: still running inference even on frames with masks?
-            prob = processor.step(rgb, msk, labels, end=(ti==vid_length-1), manually_curated_masks=False)
+            prob = processor.step_of(rgb, msk, labels, end=(ti==vid_length-1), manually_curated_masks=False, optical_flow=optical_flow)
 
             # Upsample to original size if needed
             if need_resize:
@@ -185,5 +191,12 @@ def inference_on_video(how_many_extra_frames):
 
 
 if __name__ == '__main__':
-    # for i in tqdm(range(0)):
-    inference_on_video(0)
+    vid_names = [
+        'bmx-trees',
+        'goat',
+        'gold-fish',
+        'india',
+        'shooting',
+    ]
+    for i in tqdm(vid_names):
+        inference_on_video(0, i)

@@ -25,9 +25,11 @@ class XMemTrainer:
         self.deep_update_prob = config['deep_update_prob']
         self.local_rank = local_rank
 
-        self.XMem = nn.parallel.DistributedDataParallel(
-            XMem(config).cuda(), 
-            device_ids=[local_rank], output_device=local_rank, broadcast_buffers=False)
+        # self.XMem = nn.parallel.DistributedDataParallel(
+        #     XMem(config).cuda(), 
+        #     device_ids=[local_rank], output_device=local_rank, broadcast_buffers=False)
+
+        self.XMem = XMem(config).cuda()
 
         # Set up logger when local_rank=0
         self.logger = logger
@@ -35,7 +37,7 @@ class XMemTrainer:
         if logger is not None:
             self.last_time = time.time()
             self.logger.log_string('model_size', str(sum([param.nelement() for param in self.XMem.parameters()])))
-        self.train_integrator = Integrator(self.logger, distributed=True, local_rank=local_rank, world_size=world_size)
+        self.train_integrator = Integrator(self.logger, distributed=False, local_rank=local_rank, world_size=world_size)
         self.loss_computer = LossComputer(config)
 
         self.train()
@@ -63,6 +65,7 @@ class XMemTrainer:
 
         out = {}
         frames = data['rgb']
+        optical_flow = data['optical_flow']
         first_frame_gt = data['first_frame_gt'].float()
         b = frames.shape[0]
         num_filled_objects = [o.item() for o in data['info']['num_objects']]
@@ -75,6 +78,7 @@ class XMemTrainer:
 
             filler_one = torch.zeros(1, dtype=torch.int64)
             hidden = torch.zeros((b, num_objects, self.config['hidden_dim'], *key.shape[-2:]))
+        
             v16, hidden = self.XMem('encode_value', frames[:,0], f16[:,0], hidden, first_frame_gt[:,0])
             values = v16.unsqueeze(3) # add the time dimension
 
@@ -104,7 +108,7 @@ class XMemTrainer:
                 memory_readout = self.XMem('read_memory', key[:,:,ti], selection[:,:,ti] if selection is not None else None, 
                                         ref_keys, ref_shrinkage, ref_values)
                 hidden, logits, masks = self.XMem('segment', (f16[:,ti], f8[:,ti], f4[:,ti]), memory_readout, 
-                        hidden, selector, h_out=(ti < (self.num_frames-1)))
+                        hidden, selector, h_out=(ti < (self.num_frames-1)), optical_flow=optical_flow)
 
                 # No need to encode the last frame
                 if ti < (self.num_frames-1):

@@ -13,10 +13,10 @@ class Configuration():
         parser.add_argument('--no_amp', action='store_true')
 
         # Data parameters
-        parser.add_argument('--static_root', help='Static training data root', default='../static')
-        parser.add_argument('--bl_root', help='Blender training data root', default='../BL30K')
-        parser.add_argument('--yv_root', help='YouTubeVOS data root', default='../YouTube')
-        parser.add_argument('--davis_root', help='DAVIS data root', default='../DAVIS')
+        parser.add_argument('--static_root', help='Static training data root', default='../Datasets/static')
+        parser.add_argument('--bl_root', help='Blender training data root', default='../Datasets/BL30K') 
+        parser.add_argument('--yv_root', help='YouTubeVOS data root', default='../Datasets/YouTube')
+        parser.add_argument('--davis_root', help='DAVIS data root', default='../Datasets/DAVIS')
         parser.add_argument('--num_workers', help='Total number of dataloader workers across all GPUs processes', type=int, default=16)
 
         parser.add_argument('--key_dim', default=64, type=int)
@@ -55,12 +55,12 @@ class Configuration():
         parser.add_argument('--s1_end_warm', default=70000, type=int)
 
         # Stage 2, DAVIS+YoutubeVOS, longer
-        parser.add_argument('--s2_batch_size', default=8, type=int)
+        parser.add_argument('--s2_batch_size', default=1, type=int)
         parser.add_argument('--s2_iterations', default=150000, type=int)
         # fine-tune means fewer augmentations to train the sensory memory
         parser.add_argument('--s2_finetune', default=10000, type=int)
         parser.add_argument('--s2_steps', nargs="*", default=[120000], type=int)
-        parser.add_argument('--s2_lr', help='Initial learning rate', default=1e-5, type=float)
+        parser.add_argument('--s2_lr', help='Initial learning rate', default=1.25e-6, type=float)
         parser.add_argument('--s2_num_ref_frames', default=3, type=int)
         parser.add_argument('--s2_num_frames', default=8, type=int)
         parser.add_argument('--s2_start_warm', default=20000, type=int)
@@ -84,6 +84,7 @@ class Configuration():
         # Loading
         parser.add_argument('--load_network', help='Path to pretrained network weight only')
         parser.add_argument('--load_checkpoint', help='Path to the checkpoint file, including network, optimizer and such')
+        parser.add_argument('--restore_path', default="./saves/u2net/u2net.pth", help='Path to pretrained network weight of u2net')
 
         # Logging information
         parser.add_argument('--log_text_interval', default=100, type=int)

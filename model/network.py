@@ -15,7 +15,7 @@ from model.memory_util import *
 
 
 class XMem(nn.Module):
-    def __init__(self, config, model_path=None, map_location=None):
+    def __init__(self, config, model_path=None, map_location=None, optical_flow_dim=None):
         """
         model_path/map_location are used in evaluation only
         map_location is for converting models saved in cuda to cpu
@@ -25,7 +25,12 @@ class XMem(nn.Module):
 
         self.single_object = config.get('single_object', False)
         print(f'Single object mode: {self.single_object}')
+        
 
+        #uncomment to normal xmem 
+        # self.key_encoder = KeyEncoder()
+        # self.value_encoder = ValueEncoder(self.value_dim, self.hidden_dim, self.single_object)
+        #uncomment to run as u2net 
         self.key_encoder = KeyEncoder_2(restore_path=config['restore_path'])
         self.value_encoder = ValueEncoder_2(self.value_dim, self.hidden_dim, self.single_object, restore_path=config['restore_path'])
 
@@ -106,9 +111,8 @@ class XMem(nn.Module):
         return memory
 
     def segment(self, multi_scale_features, memory_readout,
-                    hidden_state, selector=None, h_out=True, strip_bg=True): 
-
-        hidden_state, logits = self.decoder(*multi_scale_features, hidden_state, memory_readout, h_out=h_out)
+                    hidden_state, selector=None, h_out=True, strip_bg=True, optical_flow=None): 
+        hidden_state, logits = self.decoder(*multi_scale_features, hidden_state, memory_readout, h_out=h_out, optical_flow=optical_flow)
         prob = torch.sigmoid(logits)
         if selector is not None:
             prob = prob * selector
@@ -140,7 +144,7 @@ class XMem(nn.Module):
 
         Otherwise we load it either from the config or default
         """
-        if model_path is not None:
+        if False: #model_path is not None:
             # load the model and key/value/hidden dimensions with some hacks
             # config is updated with the loaded parameters
             model_weights = torch.load(model_path, map_location=map_location)
@@ -173,7 +177,6 @@ class XMem(nn.Module):
                 print(f'hidden_dim not found in config. Set to default {self.hidden_dim}')
             else:
                 self.hidden_dim = config['hidden_dim']
-
             self.disable_hidden = (self.hidden_dim <= 0)
 
         config['key_dim'] = self.key_dim
@@ -195,5 +198,8 @@ class XMem(nn.Module):
                     else:
                         print('Zero-initialized padding.')
                     src_dict[k] = torch.cat([src_dict[k], pads], 1)
+        try:
+            self.load_state_dict(src_dict['network'])
+        except: 
+            self.load_state_dict(src_dict)
 
-        self.load_state_dict(src_dict)

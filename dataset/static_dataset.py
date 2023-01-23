@@ -21,7 +21,7 @@ class StaticTransformDataset(Dataset):
     Method 0 - FSS style (class/1.jpg class/1.png)
     Method 1 - Others style (XXX.jpg XXX.png)
     """
-    def __init__(self, parameters, num_frames=3, max_num_obj=1):
+    def __init__(self, parameters, num_frames=3, max_num_obj=1, of_model=None):
         self.num_frames = num_frames
         self.max_num_obj = max_num_obj
 
@@ -86,6 +86,8 @@ class StaticTransformDataset(Dataset):
         self.final_gt_transform = transforms.Compose([
             transforms.ToTensor(),
         ])
+        self.optical_flow_model = of_model
+        
 
     def _get_sample(self, idx):
         im = Image.open(self.im_list[idx]).convert('RGB')
@@ -93,6 +95,7 @@ class StaticTransformDataset(Dataset):
 
         sequence_seed = np.random.randint(2147483647)
 
+        of_images = []
         images = []
         masks = []
         for _ in range(self.num_frames):
@@ -116,14 +119,16 @@ class StaticTransformDataset(Dataset):
 
             this_im = self.final_im_transform(this_im)
             this_gt = self.final_gt_transform(this_gt)
-
+            
+            of_images.append(torch.zeros(list(this_im[0].shape)+[2]))
             images.append(this_im)
             masks.append(this_gt)
 
+        of_images = torch.stack(of_images, 0)
         images = torch.stack(images, 0)
         masks = torch.stack(masks, 0)
 
-        return images, masks.numpy()
+        return images, masks.numpy(), of_images
 
     def __getitem__(self, idx):
         additional_objects = np.random.randint(self.max_num_obj)
@@ -133,7 +138,7 @@ class StaticTransformDataset(Dataset):
         merged_masks = np.zeros((self.num_frames, 384, 384), dtype=np.int)
 
         for i, list_id in enumerate(indices):
-            images, masks = self._get_sample(list_id)
+            images, masks, of_images = self._get_sample(list_id)
             if merged_images is None:
                 merged_images = images
             else:
@@ -163,13 +168,15 @@ class StaticTransformDataset(Dataset):
         # 1 if object exist, 0 otherwise
         selector = [1 if i < info['num_objects'] else 0 for i in range(self.max_num_obj)]
         selector = torch.FloatTensor(selector)
-
+        #adding optical flow model: 
+        
         data = {
-            'rgb': merged_images,
+            'rgb': merged_images, 
+            'optical_flow': of_images, 
             'first_frame_gt': first_frame_gt,
             'cls_gt': cls_gt,
             'selector': selector,
-            'info': info
+            'info': info, 
         }
 
         return data

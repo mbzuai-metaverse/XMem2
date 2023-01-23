@@ -157,14 +157,7 @@ class ValueEncoder_2(nn.Module):
         self.single_object = single_object
         #insert u2net 
         network = U2NET(in_ch=5)  
-        if restore_path != "":
-            if "u2net" in restore_path: 
-                original_weights = torch.load(restore_path)
-                from collections import OrderedDict
-                weights = OrderedDict(("stage1.rebnconvin.conv_s1__.weight" if k == "stage1.rebnconvin.conv_s1.weight" else k, v) for k, v in original_weights.items())
-                network.load_state_dict(weights, strict=False)
-            else: 
-                network.load_state_dict(torch.load(restore_path), strict=False)
+        
         self.stage1 = network.stage1
         self.pool12 = network.pool12  # see where this is happening: 1/2, 64
         self.stage2 = network.stage2
@@ -209,6 +202,12 @@ class ValueEncoder_2(nn.Module):
         # hx = self.pool_in(hxin)
 
         # stage 1
+        if (hx.shape[1] == 4): 
+            shape = [*hx.shape]
+            shape[1] = 1 
+            extra = torch.zeros(shape)
+            extra = extra.to("cuda")
+            hx = torch.cat((hx, extra), 1) 
         hx1 = self.stage1(hx)
         hx = self.pool12(hx1)
 
@@ -279,8 +278,7 @@ class KeyEncoder_2(nn.Module): #this is what ari needs to edit
     def __init__(self, restore_path=""):
         super().__init__()
         network = U2NET()  
-        if restore_path != "":
-            network.load_state_dict(torch.load(restore_path))
+
         self.stage1 = network.stage1
         self.pool12 = network.pool12  # see where this is happening: 1/2, 64
         self.stage2 = network.stage2

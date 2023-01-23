@@ -75,6 +75,7 @@ class XMemTrainer:
 
             filler_one = torch.zeros(1, dtype=torch.int64)
             hidden = torch.zeros((b, num_objects, self.config['hidden_dim'], *key.shape[-2:]))
+        
             v16, hidden = self.XMem('encode_value', frames[:,0], f16[:,0], hidden, first_frame_gt[:,0])
             values = v16.unsqueeze(3) # add the time dimension
 
@@ -154,8 +155,12 @@ class XMemTrainer:
         else:
             losses['total_loss'].backward() 
             self.optimizer.step()
-
-        self.scheduler.step()
+        if self.config['gradient_acc_step'] != -1: 
+            if (it % self.config['gradient_acc_step'] == 0):
+                self.scheduler.step()
+        else: 
+            self.scheduler.step()
+        
 
     def save_network(self, it):
         if self.save_path is None:
@@ -186,7 +191,6 @@ class XMemTrainer:
         # This method loads everything and should be used to resume training
         map_location = 'cuda:%d' % self.local_rank
         checkpoint = torch.load(path, map_location={'cuda:0': map_location})
-
         it = checkpoint['it']
         network = checkpoint['network']
         optimizer = checkpoint['optimizer']

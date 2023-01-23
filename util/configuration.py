@@ -13,10 +13,10 @@ class Configuration():
         parser.add_argument('--no_amp', action='store_true')
 
         # Data parameters
-        parser.add_argument('--static_root', help='Static training data root', default='../static')
-        parser.add_argument('--bl_root', help='Blender training data root', default='../BL30K')
-        parser.add_argument('--yv_root', help='YouTubeVOS data root', default='../YouTube')
-        parser.add_argument('--davis_root', help='DAVIS data root', default='../DAVIS')
+        parser.add_argument('--static_root', help='Static training data root', default='../Datasets/static')
+        parser.add_argument('--bl_root', help='Blender training data root', default='../Datasets/BL30K') 
+        parser.add_argument('--yv_root', help='YouTubeVOS data root', default='../Datasets/YouTube')
+        parser.add_argument('--davis_root', help='DAVIS data root', default='../Datasets/DAVIS')
         parser.add_argument('--num_workers', help='Total number of dataloader workers across all GPUs processes', type=int, default=16)
 
         parser.add_argument('--key_dim', default=64, type=int)
@@ -27,11 +27,13 @@ class Configuration():
 
         parser.add_argument('--stages', help='Training stage (0-static images, 1-Blender dataset, 2-DAVIS+YouTubeVOS)', default='02')
 
+        #To mimic big batch (gradient accumulation) fe. batch is 1 bc size, then gradient acc step must be 8 to mimic batch 8 
+        parser.add_argument('--gradient_acc_step', default=-1, type=int)
         """
         Stage-specific learning parameters
         Batch sizes are effective -- you don't have to scale them when you scale the number processes
         """
-        # Stage 0, static images
+         # Stage 0, static images
         parser.add_argument('--s0_batch_size', default=16, type=int)
         parser.add_argument('--s0_iterations', default=150000, type=int)
         parser.add_argument('--s0_finetune', default=0, type=int)
@@ -84,6 +86,7 @@ class Configuration():
         # Loading
         parser.add_argument('--load_network', help='Path to pretrained network weight only')
         parser.add_argument('--load_checkpoint', help='Path to the checkpoint file, including network, optimizer and such')
+        parser.add_argument('--restore_path', default="./saves/u2net/u2net.pth", help='Path to pretrained network weight of u2net')
 
         # Logging information
         parser.add_argument('--log_text_interval', default=100, type=int)

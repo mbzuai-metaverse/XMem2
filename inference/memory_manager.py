@@ -56,7 +56,7 @@ class MemoryManager:
         # this function is for a single object group
         return v @ affinity
 
-    def match_memory(self, query_key, selection):
+    def match_memory(self, query_key, selection, disable_usage_updates=False):
         # query_key: B x C^k x H x W
         # selection:  B x C^k x H x W
         # TODO: keep groups in both..?
@@ -122,14 +122,15 @@ class MemoryManager:
             """
             Record memory usage for working and long-term memory
             """
+            if not disable_usage_updates:
             # ignore the index return for long-term memory
-            work_usage = usage[:, long_mem_size:long_mem_size+temp_work_mem_size]  # no usage for permanent memory
-            self.temporary_work_mem.update_usage(work_usage.flatten())
+                work_usage = usage[:, long_mem_size:long_mem_size+temp_work_mem_size]  # no usage for permanent memory
+                self.temporary_work_mem.update_usage(work_usage.flatten())
 
-            if self.enable_long_term_usage:
-                # ignore the index return for working memory
-                long_usage = usage[:, :long_mem_size]
-                self.long_mem.update_usage(long_usage.flatten())
+                if self.enable_long_term_usage:
+                    # ignore the index return for working memory
+                    long_usage = usage[:, :long_mem_size]
+                    self.long_mem.update_usage(long_usage.flatten())
         else:
             memory_key = torch.cat([self.temporary_work_mem.key, self.permanent_work_mem.key], -1)
             shrinkage = torch.cat([self.temporary_work_mem.shrinkage, self.permanent_work_mem.shrinkage], -1)
@@ -139,9 +140,9 @@ class MemoryManager:
             if self.enable_long_term:
                 affinity, usage = do_softmax(similarity, inplace=(num_groups == 1),
                                              top_k=self.top_k, return_usage=True)
-
-                # Record memory usage for working memory
-                self.temporary_work_mem.update_usage(usage[:, :temp_work_mem_size].flatten())
+                if not disable_usage_updates:
+                    # Record memory usage for working memory
+                    self.temporary_work_mem.update_usage(usage[:, :temp_work_mem_size].flatten())
             else:
                 affinity = do_softmax(similarity, inplace=(num_groups == 1),
                                       top_k=self.top_k, return_usage=False)

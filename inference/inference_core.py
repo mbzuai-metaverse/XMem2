@@ -49,6 +49,7 @@ class InferenceCore:
         # image: 3*H*W
         # mask: num_objects*H*W or None
         self.curr_ti += 1
+            
         image, self.pad = pad_divide_by(image, 16)
         image = image.unsqueeze(0) # add the batch dimension
         if manually_curated_masks:
@@ -74,10 +75,11 @@ class InferenceCore:
             is_normal_update = False
             is_deep_update = False
             is_mem_frame = False
+            self.curr_ti -= 1  # do not advance the iteration further
 
         # segment the current frame is needed
         if need_segment:
-            memory_readout = self.memory.match_memory(key, selection).unsqueeze(0)
+            memory_readout = self.memory.match_memory(key, selection, disable_usage_updates=disable_memory_updates).unsqueeze(0)
             hidden, _, pred_prob_with_bg = self.network.segment(multi_scale_features, memory_readout, 
                                     self.memory.get_hidden(), h_out=is_normal_update, strip_bg=False)
             # remove batch dim

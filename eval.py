@@ -11,7 +11,7 @@ from PIL import Image
 
 from inference.data.test_datasets import LongTestDataset, DAVISTestDataset, YouTubeVOSTestDataset
 from inference.data.mask_mapper import MaskMapper
-from model.network import XMem
+from model.network import XMem, XMem_u2net
 from inference.inference_core import InferenceCore
 
 from progressbar import progressbar
@@ -29,11 +29,11 @@ parser = ArgumentParser()
 parser.add_argument('--model', default='./saves/XMem.pth')
 
 # Data options
-parser.add_argument('--d16_path', default='../DAVIS/2016')
-parser.add_argument('--d17_path', default='../DAVIS/2017')
-parser.add_argument('--y18_path', default='../YouTube2018')
-parser.add_argument('--y19_path', default='../YouTube')
-parser.add_argument('--lv_path', default='../long_video_set')
+parser.add_argument('--d16_path', default='..../Datasets/DAVIS/2016')
+parser.add_argument('--d17_path', default='../Datasets/DAVIS/2017')
+parser.add_argument('--y18_path', default='../Datasets/YouTube2018')
+parser.add_argument('--y19_path', default='../Datasets/YouTube')
+parser.add_argument('--lv_path', default='../Datasets/long_video_set')
 # For generic (G) evaluation, point to a folder that contains "JPEGImages" and "Annotations"
 parser.add_argument('--generic_path')
 
@@ -134,7 +134,7 @@ torch.autograd.set_grad_enabled(False)
 meta_loader = meta_dataset.get_datasets()
 
 # Load our checkpoint
-network = XMem(config, args.model).cuda().eval()
+network = XMem_u2net(config, args.model).cuda().eval()
 if args.model is not None:
     model_weights = torch.load(args.model)
     network.load_weights(model_weights, init_as_zero_if_needed=True)

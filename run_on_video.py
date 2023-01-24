@@ -36,7 +36,7 @@ def inference_on_video(how_many_extra_frames, video_name):
         'max_mid_term_frames': 10,
         'mem_every': 10,
         'min_mid_term_frames': 5,
-        'model': 'saves/Jan11_12.13.03_retrain_s2/Jan11_12.13.03_retrain_s2_850000.pth', # './saves/XMem.pth',
+        'model': 'saves/Baseline/Jan20_14.47.17_retrain_s02/Jan20_14.47.17_retrain_s02_160000.pth', # './saves/XMem.pth',
         'no_amp': False,
         'num_objects': 1,
         'num_prototypes': 128,
@@ -45,7 +45,7 @@ def inference_on_video(how_many_extra_frames, video_name):
         'top_k': 30,
         'value_dim': 512,
         'video': f'../VIDEOS/DAVIS-2017-trainval-480p/DAVIS/2017_train_val_split/val/JPEGImages/{video_name}',
-        'masks_out_path': f'../VIDEOS/RESULTS/XMem_u2net/DAVIS-2017/trained_final_grad_acc/{how_many_extra_frames}_extra_frames',
+        'masks_out_path': f'../VIDEOS/RESULTS/XMem_u2net/DAVIS-2017/XMem_baseline_trained/{how_many_extra_frames}_extra_frames',
         'workspace': None,
         'save_masks': True,
         'restore_path':  ''
@@ -69,8 +69,8 @@ def inference_on_video(how_many_extra_frames, video_name):
     # Start eval
     vid_reader = VideoReader(
         f'{video_name}', 
-        f'/home/maksym/RESEARCH/VIDEOS/DAVIS-2017-trainval-480p/DAVIS/2017_train_val_split/val/JPEGImages/{video_name}',
-        f'/home/maksym/RESEARCH/VIDEOS/DAVIS-2017-trainval-480p/DAVIS/2017_train_val_split/val/Annotations_chosen/BINARIZED/{video_name}',
+        f'../VIDEOS/DAVIS-2017-trainval-480p/DAVIS/2017_train_val_split/val/JPEGImages/{video_name}',
+        f'../VIDEOS/DAVIS-2017-trainval-480p/DAVIS/2017_train_val_split/val/Annotations_chosen/BINARIZED/{video_name}',
         size=config['size'],
         use_all_mask=True
     )

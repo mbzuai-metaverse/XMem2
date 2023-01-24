@@ -229,10 +229,12 @@ class MemoryManager:
 
     def create_hidden_state(self, n, sample_key):
         # n is the TOTAL number of objects
+        # [B, num_objects, hidden_dim, h, w]
         h, w = sample_key.shape[-2:]
         if self.hidden is None:
             self.hidden = torch.zeros((1, n, self.hidden_dim, h, w), device=sample_key.device)
         elif self.hidden.shape[1] != n:
+            # ONLY if the shape[1] (num_objects) != total number of objects
             self.hidden = torch.cat([
                 self.hidden,
                 torch.zeros((1, n-self.hidden.shape[1], self.hidden_dim, h, w), device=sample_key.device)

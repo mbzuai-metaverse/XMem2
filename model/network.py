@@ -13,6 +13,7 @@ from model.aggregate import aggregate
 from model.modules import *
 from model.memory_util import *
 from util.tensor_util import KeyFeatures
+from util.tensor_util import pad_divide_by
 
 
 class XMem(nn.Module):
@@ -120,6 +121,37 @@ class XMem(nn.Module):
         # TODO: return multiscale
         return g16, h16
 
+    def encode_holistic_features(self, frames: list, masks: list):
+        """Takes a list of frames + masks and -> a block of same shape as `value` features, Nx more channels (N=4 by default)
+
+        Runs a recurrent unit with memory 
+        Args:
+            frames (list): List of torch.Tensor objects containing RGB images
+            masks (list): List of torch.Tensor objects containing binary GT masks
+        """
+        assert len(frames) > 0, "No frames provided for holistic features extraction!"
+        assert len(frames) == len(masks), f"Equal number of frames and masks should be provided, got {len(frames)} and {len(masks)}"
+        
+        holistic_features = None
+        for image, mask in zip(frames, masks):
+            image, _ = pad_divide_by(image, 16)
+            image = image.unsqueeze(0) # add the batch dimension
+                
+            mask, _ = pad_divide_by(mask, 16)
+            mask = aggregate(mask, dim=0)
+            mask = mask[1:].unsqueeze(0)
+            
+            assert len(image.shape) == 4
+            key, shrinkage, selection, f16, f8, f4 = self.encode_key(image, need_ek=False, need_sk=False)
+            
+            # hidden state is ignored if is_deep_update==False
+            # value.shape = [B, num_groups, 512, 30, 54]
+            value, _ = self.encode_value(image, f16, h16=None, masks=mask, is_deep_update=False)
+
+            holistic_features = self.holistic_encoder((f16, f8, f4), value, hidden_features=holistic_features)
+  
+        return holistic_features
+        
     # Used in training only. 
     # This step is replaced by MemoryManager in test time
     def read_memory(self, query_key, query_selection, memory_key, 
@@ -141,9 +173,9 @@ class XMem(nn.Module):
         return memory
 
     def segment(self, multi_scale_features, memory_readout,
-                    hidden_state, selector=None, h_out=True, strip_bg=True): 
+                    hidden_state, selector=None, h_out=True, strip_bg=True, holistic_features=None): 
 
-        hidden_state, logits = self.decoder(*multi_scale_features, hidden_state, memory_readout, h_out=h_out)
+        hidden_state, logits = self.decoder(*multi_scale_features, hidden_state, memory_readout, holistic_features=holistic_features, h_out=h_out)
         prob = torch.sigmoid(logits)
         if selector is not None:
             prob = prob * selector
@@ -175,6 +207,8 @@ class XMem(nn.Module):
 
         Otherwise we load it either from the config or default
         """
+        
+        # TODO: add holistic features config here, hardcoded for now
         if model_path is not None:
             # load the model and key/value/hidden dimensions with some hacks
             # config is updated with the loaded parameters

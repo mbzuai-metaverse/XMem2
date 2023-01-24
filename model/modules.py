@@ -223,6 +223,8 @@ class KeyProjection(nn.Module):
         return self.key_proj(x), shrinkage, selection
 
 
+# https://pastebin.com/QVRTR2nr for HolisticFeatures
+
 class Decoder(nn.Module):
     def __init__(self, val_dims: list, hidden_dim):
         super().__init__()
@@ -249,6 +251,10 @@ class Decoder(nn.Module):
         """
         batch_size, num_objects = mem_f16.shape[:2]
 
+        # TODO: add holistic memory features into the fuser
+        # holistic memory features are calculated ONCE before the inference 
+        # they are the same for every single call of this `forward` method
+        features_to_fuse = [memory_readout]
         if self.hidden_update is not None:
             g16 = self.fuser_f16(f16, torch.cat([mem_f16, hidden_state], 2))
         else:

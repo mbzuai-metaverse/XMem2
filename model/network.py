@@ -12,6 +12,7 @@ import torch.nn as nn
 from model.aggregate import aggregate
 from model.modules import *
 from model.memory_util import *
+from util.tensor_util import KeyFeatures
 
 
 class XMem(nn.Module):
@@ -24,20 +25,37 @@ class XMem(nn.Module):
         model_weights = self.init_hyperparameters(config, model_path, map_location)
 
         self.single_object = config.get('single_object', False)
-        print(f'Single object mode: {self.single_object}')
+        # print(f'Single object mode: {self.single_object}')
 
+        # backbone
         self.key_encoder = KeyEncoder()
-        self.value_encoder = ValueEncoder(self.value_dim, self.hidden_dim, self.single_object)
 
-        # Projection from f16 feature space to key/value space
-        self.key_proj = KeyProjection(1024, self.key_dim)
+        # Value encoders (3 different memories -> 3 different sizes of values)
+        self.value_encoder_f16 = ValueEncoder(self.value_dim_f16, self.hidden_dim, stop_at=3, single_object=self.single_object)
+        self.value_encoder_f8 = ValueEncoder(self.value_dim_f8, self.hidden_dim, stop_at=2, single_object=self.single_object)
+        self.value_encoder_f4 = ValueEncoder(self.value_dim_f4, self.hidden_dim, stop_at=1, single_object=self.single_object)
 
-        self.decoder = Decoder(self.value_dim, self.hidden_dim)
+        # Projection from fx feature space to key/value space
+        self.key_proj_f16 = KeyProjection(1024, self.key_dim_f16)
+        self.key_proj_f8 = KeyProjection(512, self.key_dim_f8)
+        self.key_proj_f4 = KeyProjection(256, self.key_dim_f4)
+
+        self.decoder = Decoder([self.value_dim_f16, self.value_dim_f8, self.value_dim_f4], self.hidden_dim)
 
         if model_weights is not None:
             self.load_weights(model_weights, init_as_zero_if_needed=True)
 
-    def encode_key(self, frame, need_sk=True, need_ek=True): 
+    @staticmethod
+    def _reshape(b, t, key, shrinkage=None, selection=None):
+        key = key.view(b, t, *key.shape[-3:]).transpose(1, 2).contiguous()
+        if shrinkage is not None:
+            shrinkage = shrinkage.view(b, t, *shrinkage.shape[-3:]).transpose(1, 2).contiguous()
+        if selection is not None:
+            selection = selection.view(b, t, *selection.shape[-3:]).transpose(1, 2).contiguous()
+
+        return key, shrinkage, selection
+
+    def encode_key(self, frame, need_sk=True, need_ek=True) -> KeyFeatures: 
         # Determine input shape
         if len(frame.shape) == 5:
             # shape is b*t*c*h*w
@@ -52,22 +70,39 @@ class XMem(nn.Module):
             raise NotImplementedError
     
         f16, f8, f4 = self.key_encoder(frame)
-        key, shrinkage, selection = self.key_proj(f16, need_sk, need_ek)
+        key_f16, shrinkage_f16, selection_f16 = self.key_proj_f16(f16, need_sk, need_ek)
+        key_f8, shrinkage_f8, selection_f8 = self.key_proj_f8(f8, need_sk, need_ek)
+        key_f4, shrinkage_f4, selection_f4 = self.key_proj_f4(f4, need_sk, need_ek)
 
         if need_reshape:
-            # B*C*T*H*W
-            key = key.view(b, t, *key.shape[-3:]).transpose(1, 2).contiguous()
-            if shrinkage is not None:
-                shrinkage = shrinkage.view(b, t, *shrinkage.shape[-3:]).transpose(1, 2).contiguous()
-            if selection is not None:
-                selection = selection.view(b, t, *selection.shape[-3:]).transpose(1, 2).contiguous()
+            key_f16, shrinkage_f16, selection_f16 = self._reshape(b, t, key_f16, shrinkage_f16, selection_f16)
+            key_f8, shrinkage_f8, selection_f8 = self._reshape(b, t, key_f8, shrinkage_f8, selection_f8)
+            key_f4, shrinkage_f4, selection_f4 = self._reshape(b, t, key_f4, shrinkage_f4, selection_f4)
 
             # B*T*C*H*W
             f16 = f16.view(b, t, *f16.shape[-3:])
             f8 = f8.view(b, t, *f8.shape[-3:])
             f4 = f4.view(b, t, *f4.shape[-3:])
 
-        return key, shrinkage, selection, f16, f8, f4
+        res = KeyFeatures(
+            f16=f16,
+            f8=f8,
+            f4=f4,
+
+            key_f16=key_f16,
+            key_f8=key_f8,
+            key_f4=key_f4,
+
+            shrinkage_f16=shrinkage_f16,
+            shrinkage_f8=shrinkage_f8,
+            shrinkage_f4=shrinkage_f4,
+
+            selection_f16=selection_f16,
+            selection_f8=selection_f8,
+            selection_f4=selection_f4,
+        )
+
+        return res
 
     def encode_value(self, frame, image_feat_f16, h16, masks, is_deep_update=True): 
         num_objects = masks.shape[1]
@@ -80,8 +115,9 @@ class XMem(nn.Module):
         else:
             others = torch.zeros_like(masks)
 
-        g16, h16 = self.value_encoder(frame, image_feat_f16, h16, masks, others, is_deep_update)
+        g16, h16 = self.value_encoder_f16(frame, image_feat_f16, h16, masks, others, is_deep_update)
 
+        # TODO: return multiscale
         return g16, h16
 
     # Used in training only. 
@@ -100,7 +136,7 @@ class XMem(nn.Module):
 
         affinity = get_affinity(memory_key, memory_shrinkage, query_key, query_selection)
         memory = readout(affinity, memory_value)
-        memory = memory.view(batch_size, num_objects, self.value_dim, *memory.shape[-2:])
+        memory = memory.view(batch_size, num_objects, self.value_dim_f16, *memory.shape[-2:])
 
         return memory
 
@@ -142,31 +178,59 @@ class XMem(nn.Module):
         if model_path is not None:
             # load the model and key/value/hidden dimensions with some hacks
             # config is updated with the loaded parameters
+            # TODO: fix names for multi-scale memory 
             model_weights = torch.load(model_path, map_location=map_location)
-            self.key_dim = model_weights['key_proj.key_proj.weight'].shape[0]
-            self.value_dim = model_weights['value_encoder.fuser.block2.conv2.weight'].shape[0]
+            self.key_dim_f16 = model_weights['key_proj.key_proj.weight'].shape[0]
+            self.value_dim_f16 = model_weights['value_encoder.fuser.block2.conv2.weight'].shape[0]
             self.disable_hidden = 'decoder.hidden_update.transform.weight' not in model_weights
             if self.disable_hidden:
                 self.hidden_dim = 0
             else:
                 self.hidden_dim = model_weights['decoder.hidden_update.transform.weight'].shape[0]//3
-            print(f'Hyperparameters read from the model weights: '
-                    f'C^k={self.key_dim}, C^v={self.value_dim}, C^h={self.hidden_dim}')
+            # print(f'Hyperparameters read from the model weights: '
+                    # f'C^k={self.key_dim}, C^v={self.value_dim}, C^h={self.hidden_dim}')
         else:
             model_weights = None
             # load dimensions from config or default
-            if 'key_dim' not in config:
-                self.key_dim = 64
-                print(f'key_dim not found in config. Set to default {self.key_dim}')
+            # ===============================key_dims======================================
+            if 'key_dim_f16' not in config:
+                self.key_dim_f16 = 64
+                print(f'key_dim_f16 not found in config. Set to default {self.key_dim_f16}')
             else:
-                self.key_dim = config['key_dim']
+                self.key_dim_f16 = config['key_dim_f16']
 
-            if 'value_dim' not in config:
-                self.value_dim = 512
-                print(f'value_dim not found in config. Set to default {self.value_dim}')
+            if 'key_dim_f8' not in config:
+                self.key_dim_f8 = 32
+                print(f'key_dim_f8 not found in config. Set to default {self.key_dim_f8}')
             else:
-                self.value_dim = config['value_dim']
+                self.key_dim_f8 = config['key_dim_f8']
 
+            if 'key_dim_f4' not in config:
+                self.key_dim_f4 = 16
+                print(f'key_dim_f4 not found in config. Set to default {self.key_dim_f4}')
+            else:
+                self.key_dim_f4 = config['key_dim_f4']
+
+            # ============================value_dims=======================================
+            if 'value_dim_f16' not in config:
+                self.value_dim_f16 = 512
+                print(f'value_dim_f16 not found in config. Set to default {self.value_dim_f16}')
+            else:
+                self.value_dim_f16 = config['value_dim_f16']
+
+            if 'value_dim_f8' not in config:
+                self.value_dim_f8 = 256
+                print(f'value_dim_f8 not found in config. Set to default {self.value_dim_f8}')
+            else:
+                self.value_dim_f8 = config['value_dim_f8']
+
+            if 'value_dim_f4' not in config:
+                self.value_dim_f4 = 128
+                print(f'value_dim_f4 not found in config. Set to default {self.value_dim_f4}')
+            else:
+                self.value_dim_f4 = config['value_dim_f4']
+
+            # ============================hidden_dims======================================
             if 'hidden_dim' not in config:
                 self.hidden_dim = 64
                 print(f'hidden_dim not found in config. Set to default {self.hidden_dim}')
@@ -175,8 +239,14 @@ class XMem(nn.Module):
 
             self.disable_hidden = (self.hidden_dim <= 0)
 
-        config['key_dim'] = self.key_dim
-        config['value_dim'] = self.value_dim
+        config['key_dim_f16'] = self.key_dim_f16
+        config['key_dim_f8'] = self.key_dim_f8
+        config['key_dim_f4'] = self.key_dim_f4
+
+        config['value_dim_f16'] = self.value_dim_f16
+        config['value_dim_f8'] = self.value_dim_f8
+        config['value_dim_f4'] = self.value_dim_f4
+
         config['hidden_dim'] = self.hidden_dim
 
         return model_weights

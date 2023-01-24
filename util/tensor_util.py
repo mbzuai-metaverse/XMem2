@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from typing import Optional
 import torch.nn.functional as F
 import torch
 
@@ -57,3 +59,22 @@ def get_bbox_from_mask(mask):
     max_y, max_x = nonzero.max(dim=0).values
     
     return int(min_y), int(min_x), int(max_y), int(max_x)
+
+
+@dataclass
+class KeyFeatures:
+    f16: torch.tensor
+    f8: torch.tensor
+    f4: torch.tensor
+
+    key_f16: torch.tensor
+    key_f8: torch.tensor
+    key_f4: torch.tensor
+
+    shrinkage_f16: Optional[torch.tensor]
+    shrinkage_f8: Optional[torch.tensor]
+    shrinkage_f4: Optional[torch.tensor]
+
+    selection_f16: Optional[torch.tensor]
+    selection_f8: Optional[torch.tensor]
+    selection_f4: Optional[torch.tensor]

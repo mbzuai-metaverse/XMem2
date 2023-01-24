@@ -3,6 +3,7 @@ import warnings
 
 from inference.kv_memory_store import KeyValueMemoryStore
 from model.memory_util import *
+from util.tensor_util import KeyFeatures
 
 
 class MemoryManager:
@@ -56,15 +57,16 @@ class MemoryManager:
         # this function is for a single object group
         return v @ affinity
 
-    def match_memory(self, query_key, selection, disable_usage_updates=False):
+    def match_memory(self, keys: KeyFeatures, disable_usage_updates=False):
         # query_key: B x C^k x H x W
         # selection:  B x C^k x H x W
         # TODO: keep groups in both..?
+        # TODO: add multiscale
         # 1x64x30x54
         num_groups = self.temporary_work_mem.num_groups
-        h, w = query_key.shape[-2:]
+        # h, w = query_key.shape[-2:]
 
-        query_key = query_key.flatten(start_dim=2)
+        # query_key = query_key.flatten(start_dim=2)
         selection = selection.flatten(start_dim=2) if selection is not None else None
 
         """
@@ -168,6 +170,7 @@ class MemoryManager:
         return all_readout_mem.view(all_readout_mem.shape[0], self.CV, h, w)
 
     def add_memory(self, key, shrinkage, value, objects, selection=None, permanent=False, ignore=False):
+        # TODO: add multiscale features
         # key: 1*C*H*W
         # value: 1*num_objects*C*H*W
         # objects contain a list of object indices

@@ -66,10 +66,10 @@ class InferenceCore:
         ) and (not end)
         is_normal_update = (not self.deep_update_sync or not is_deep_update) and (not end)
 
-        key, shrinkage, selection, f16, f8, f4 = self.network.encode_key(image, 
+        key_features = self.network.encode_key(image, 
                                                     need_ek=(self.enable_long_term or need_segment), 
                                                     need_sk=is_mem_frame)
-        multi_scale_features = (f16, f8, f4)
+        multi_scale_features = (key_features.f16, key_features.f8, key_features.f4)
 
         if disable_memory_updates:
             is_normal_update = False
@@ -129,16 +129,16 @@ class InferenceCore:
     def put_to_permanent_memory(self, image, mask):
         image, self.pad = pad_divide_by(image, 16)
         image = image.unsqueeze(0) # add the batch dimension
-        key, shrinkage, selection, f16, f8, f4 = self.network.encode_key(image, 
+        key_features = self.network.encode_key(image, 
                                             need_ek=True, 
                                             need_sk=True)
 
         mask, _ = pad_divide_by(mask, 16)
 
         pred_prob_with_bg = aggregate(mask, dim=0)
-        self.memory.create_hidden_state(len(self.all_labels), key)
+        self.memory.create_hidden_state(len(self.all_labels), key_features.key_f16)
 
-        value, hidden = self.network.encode_value(image, f16, self.memory.get_hidden(), 
+        value, hidden = self.network.encode_value(image, key_features.f16, self.memory.get_hidden(), 
                                     pred_prob_with_bg[1:].unsqueeze(0), is_deep_update=False)
                                     
         self.memory.add_memory(key, shrinkage, value, self.all_labels, 

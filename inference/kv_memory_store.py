@@ -1,6 +1,7 @@
 import torch
 from typing import List
 
+
 class KeyValueMemoryStore:
     """
     Works for key/value pairs type storage

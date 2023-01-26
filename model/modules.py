@@ -104,7 +104,7 @@ class HiddenReinforcer(nn.Module):
 class ValueEncoder(nn.Module):
     def __init__(self, value_dim, hidden_dim, stop_at=3, single_object=False):
         """
-        stop_at: what backbone stage to get features from (1, 2, or 3)
+        stop_at: what backbone stage to get features from (1 -> 4, 2 -> 8, or 3 -> 16)
         """
         assert 1 <= stop_at <= 3
 
@@ -125,8 +125,22 @@ class ValueEncoder(nn.Module):
                 self.layer3 = network.layer3 # 1/16, 256
 
         self.distributor = MainToGroupDistributor()
-        self.fuser = FeatureFusionBlock(1024, 256, value_dim, value_dim)
-        if hidden_dim > 0:
+
+        channels_modifiers = {
+            # stop_at -> num_channels denominator
+            3: 1,
+            2: 2,
+            1: 4
+        }
+
+        reduce_channels_factor = channels_modifiers[stop_at]
+        # 1024 -> channels of features maps from key_encoder backbone
+        # 256 -> same thing, but form value_encoder backbone
+        x_in_dim = 1024 // reduce_channels_factor
+        g_in_dim = 256 // reduce_channels_factor
+
+        self.fuser = FeatureFusionBlock(x_in_dim, g_in_dim, value_dim, value_dim)
+        if hidden_dim > 0 and stop_at == 3:
             self.hidden_reinforce = HiddenReinforcer(value_dim, hidden_dim)
         else:
             self.hidden_reinforce = None
@@ -230,7 +244,6 @@ class Decoder(nn.Module):
         super().__init__()
         val_dim_f16, val_dim_f8, val_dim_f4 = val_dims
 
-        # TODO: fix shapes?
         self.fuser_f16 = FeatureFusionBlock(1024, val_dim_f16+hidden_dim, 512, 512)
         self.fuser_f8 = FeatureFusionBlock(512, val_dim_f8, 256, 256)
         self.fuser_f4 = FeatureFusionBlock(256, val_dim_f4, 128, 128)
@@ -254,15 +267,17 @@ class Decoder(nn.Module):
         # TODO: add holistic memory features into the fuser
         # holistic memory features are calculated ONCE before the inference 
         # they are the same for every single call of this `forward` method
-        features_to_fuse = [memory_readout]
         if self.hidden_update is not None:
+            # should be [1024, val_dim_f16+hidden_dim]
             g16 = self.fuser_f16(f16, torch.cat([mem_f16, hidden_state], 2))
         else:
             g16 = self.fuser_f16(f16, mem_f16)
 
+        # should be [512, val_dim_f8]
         g8 = self.fuser_f8(f8, mem_f8)
         g8_mixed = self.up_16_8(g8, g16)
 
+        # should be [256, val_dim_f4]
         g4 = self.fuser_f4(f4, mem_f4)
         g4_mixed = self.up_8_4(g4, g8_mixed)
 

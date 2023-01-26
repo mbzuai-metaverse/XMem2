@@ -87,8 +87,8 @@ class InferenceCore:
         # But if deep_update_sync is disabled, then it's either HiddenUpdater or BOTH applied to hidden state
         key_features = self.network.encode_key(image, need_ek=(
             self.enable_long_term or need_segment), need_sk=is_mem_frame)
-        multi_scale_features = (
-            key_features.f16, key_features.f8, key_features.f4)
+
+        multi_scale_features = (key_features.f16, key_features.f8, key_features.f4)
 
         if disable_memory_updates:
             is_normal_update = False
@@ -98,9 +98,8 @@ class InferenceCore:
 
         # segment the current frame is needed
         if need_segment:
-            memory_readout = self.memory.match_memory(
-                key, selection, disable_usage_updates=disable_memory_updates).unsqueeze(0)
-            hidden, _, pred_prob_with_bg = self.network.segment(multi_scale_features, memory_readout,
+            memory_readouts = self.memory.match_memory(key_features, disable_usage_updates=disable_memory_updates).unsqueeze(0)
+            hidden, _, pred_prob_with_bg = self.network.segment(multi_scale_features, memory_readouts,
                                                                 self.memory.get_hidden(), h_out=is_normal_update, holistic_features=holistic_features, strip_bg=False)
             # remove batch dim
             pred_prob_with_bg = pred_prob_with_bg[0]
@@ -136,10 +135,9 @@ class InferenceCore:
 
         # save as memory if needed
         if is_mem_frame:
-            value, hidden = self.network.encode_value(image, f16, self.memory.get_hidden(),
+            multiscale_values = self.network.encode_value(image, multi_scale_features, self.memory.get_hidden(),
                                                       pred_prob_with_bg[1:].unsqueeze(0), is_deep_update=is_deep_update)
-            self.memory.add_memory(key, shrinkage, value, self.all_labels,
-                                   selection=selection if self.enable_long_term else None, ignore=is_ignore)
+            self.memory.add_memory(key_features, multiscale_values, self.all_labels, ignore=is_ignore)
 
             self.last_mem_ti = self.curr_ti
 

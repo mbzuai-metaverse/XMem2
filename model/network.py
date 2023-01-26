@@ -12,7 +12,7 @@ import torch.nn as nn
 from model.aggregate import aggregate
 from model.modules import *
 from model.memory_util import *
-from util.tensor_util import KeyFeatures
+from util.tensor_util import MultiscaleFeatures_16_8_4, MutliscaleValues_16_8_4
 from util.tensor_util import pad_divide_by
 
 
@@ -33,8 +33,8 @@ class XMem(nn.Module):
 
         # Value encoders (3 different memories -> 3 different sizes of values)
         self.value_encoder_f16 = ValueEncoder(self.value_dim_f16, self.hidden_dim, stop_at=3, single_object=self.single_object)
-        self.value_encoder_f8 = ValueEncoder(self.value_dim_f8, self.hidden_dim, stop_at=2, single_object=self.single_object)
-        self.value_encoder_f4 = ValueEncoder(self.value_dim_f4, self.hidden_dim, stop_at=1, single_object=self.single_object)
+        self.value_encoder_f8 = ValueEncoder(self.value_dim_f8, hidden_dim=0, stop_at=2, single_object=self.single_object)
+        self.value_encoder_f4 = ValueEncoder(self.value_dim_f4, hidden_dim=0, stop_at=1, single_object=self.single_object)
 
         # Projection from fx feature space to key/value space
         self.key_proj_f16 = KeyProjection(1024, self.key_dim_f16)
@@ -56,7 +56,7 @@ class XMem(nn.Module):
 
         return key, shrinkage, selection
 
-    def encode_key(self, frame, need_sk=True, need_ek=True) -> KeyFeatures: 
+    def encode_key(self, frame, need_sk=True, need_ek=True) -> MultiscaleFeatures_16_8_4: 
         # Determine input shape
         if len(frame.shape) == 5:
             # shape is b*t*c*h*w
@@ -85,27 +85,16 @@ class XMem(nn.Module):
             f8 = f8.view(b, t, *f8.shape[-3:])
             f4 = f4.view(b, t, *f4.shape[-3:])
 
-        res = KeyFeatures(
-            f16=f16,
-            f8=f8,
-            f4=f4,
-
-            key_f16=key_f16,
-            key_f8=key_f8,
-            key_f4=key_f4,
-
-            shrinkage_f16=shrinkage_f16,
-            shrinkage_f8=shrinkage_f8,
-            shrinkage_f4=shrinkage_f4,
-
-            selection_f16=selection_f16,
-            selection_f8=selection_f8,
-            selection_f4=selection_f4,
+        res = MultiscaleFeatures_16_8_4(
+            features=(f16, f8, f4),
+            keys=(key_f16, key_f8, key_f4),
+            shrinkages=(shrinkage_f16, shrinkage_f8, shrinkage_f4),
+            selections=(selection_f16, selection_f8, selection_f4)
         )
 
         return res
 
-    def encode_value(self, frame, image_feat_f16, h16, masks, is_deep_update=True): 
+    def encode_value(self, frame, features_16_8_4, h16, masks, is_deep_update=True) -> MutliscaleValues_16_8_4: 
         num_objects = masks.shape[1]
         if num_objects != 1:
             others = torch.cat([
@@ -116,10 +105,16 @@ class XMem(nn.Module):
         else:
             others = torch.zeros_like(masks)
 
-        g16, h16 = self.value_encoder_f16(frame, image_feat_f16, h16, masks, others, is_deep_update)
+        f16, f8, f4 = features_16_8_4
+        # We only use hidden updates in original value encoder
+        g16, h16 = self.value_encoder_f16(frame, f16, h16, masks, others, is_deep_update)
+        g8, _ = self.value_encoder_f8(frame, f8, None, masks, others, is_deep_update=False)
+        g4, _ = self.value_encoder_f4(frame, f4, None, masks, others, is_deep_update=False)
 
-        # TODO: return multiscale
-        return g16, h16
+        res = MutliscaleValues_16_8_4(values=(g16 ,g8, g4), hidden=h16)
+
+        return res 
+
 
     def encode_holistic_features(self, frames: list, masks: list):
         """Takes a list of frames + masks and -> a block of same shape as `value` features, Nx more channels (N=4 by default)
@@ -154,8 +149,7 @@ class XMem(nn.Module):
         
     # Used in training only. 
     # This step is replaced by MemoryManager in test time
-    def read_memory(self, query_key, query_selection, memory_key, 
-                    memory_shrinkage, memory_value):
+    def read_memory(self, query_key_features: MultiscaleFeatures_16_8_4, memory_key_features: MultiscaleFeatures_16_8_4, memory_values: MutliscaleValues_16_8_4):
         """
         query_key       : B * CK * H * W
         query_selection : B * CK * H * W
@@ -163,19 +157,34 @@ class XMem(nn.Module):
         memory_shrinkage: B * 1  * T * H * W
         memory_value    : B * num_objects * CV * T * H * W
         """
-        batch_size, num_objects = memory_value.shape[:2]
-        memory_value = memory_value.flatten(start_dim=1, end_dim=2)
 
-        affinity = get_affinity(memory_key, memory_shrinkage, query_key, query_selection)
-        memory = readout(affinity, memory_value)
-        memory = memory.view(batch_size, num_objects, self.value_dim_f16, *memory.shape[-2:])
+        memories = []
+        scales = query_key_features.scales
+
+        for scale, value_dim in zip(scales, [self.value_dim_f16, self.value_dim_f8, self.value_dim_f4]):
+            query_key = query_key_features.features_by_scale[scale].key
+            query_selection = query_key_features.features_by_scale[scale].selection
+
+            memory_key = memory_key_features.features_by_scale[scale].key
+            memory_shrinkage = memory_key_features.features_by_scale[scale].shrinkage
+
+            memory_value = memory_values.values_by_scale[scale]
+
+            batch_size, num_objects = memory_value.shape[:2]
+            memory_value = memory_value.flatten(start_dim=1, end_dim=2)
+
+            affinity = get_affinity(memory_key, memory_shrinkage, query_key, query_selection)
+            memory = readout(affinity, memory_value)
+            memory = memory.view(batch_size, num_objects, value_dim, *memory.shape[-2:])
+
+            memories.append(memory)
 
         return memory
 
-    def segment(self, multi_scale_features, memory_readout,
+    def segment(self, multi_scale_features, memory_readouts,
                     hidden_state, selector=None, h_out=True, strip_bg=True, holistic_features=None): 
 
-        hidden_state, logits = self.decoder(*multi_scale_features, hidden_state, memory_readout, holistic_features=holistic_features, h_out=h_out)
+        hidden_state, logits = self.decoder(*multi_scale_features, hidden_state, *memory_readouts, h_out=h_out)
         prob = torch.sigmoid(logits)
         if selector is not None:
             prob = prob * selector
@@ -212,10 +221,15 @@ class XMem(nn.Module):
         if model_path is not None:
             # load the model and key/value/hidden dimensions with some hacks
             # config is updated with the loaded parameters
-            # TODO: fix names for multi-scale memory 
             model_weights = torch.load(model_path, map_location=map_location)
-            self.key_dim_f16 = model_weights['key_proj.key_proj.weight'].shape[0]
-            self.value_dim_f16 = model_weights['value_encoder.fuser.block2.conv2.weight'].shape[0]
+            self.key_dim_f16 = model_weights['key_proj_f16.key_proj.weight'].shape[0]
+            self.key_dim_f8 = model_weights['key_proj_f8.key_proj.weight'].shape[0]
+            self.key_dim_f4 = model_weights['key_proj_f4.key_proj.weight'].shape[0]
+
+            self.value_dim_f16 = model_weights['value_encoder_f16.fuser.block2.conv2.weight'].shape[0]
+            self.value_dim_f16 = model_weights['value_encoder_f8.fuser.block2.conv2.weight'].shape[0]
+            self.value_dim_f16 = model_weights['value_encoder_f4.fuser.block2.conv2.weight'].shape[0]
+
             self.disable_hidden = 'decoder.hidden_update.transform.weight' not in model_weights
             if self.disable_hidden:
                 self.hidden_dim = 0

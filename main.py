@@ -27,10 +27,10 @@ if __name__ == '__main__':
     print(f"Average IoU for the video: {float(stats_5_frames['iou'].mean())} ({num_annotation_candidates} chosen annotated frames)")
 
     # Example for a video with only a few annotations present
-    video_frames_path = 'example_videos/two-face/frames'
-    video_masks_path = 'example_videos/two-face/masks'
-    output_masks_path_baseline = 'output/two-face/baseline'
-    output_masks_path_5_frames = 'output/two-face/5_frames'
+    video_frames_path = 'example_videos/imbalanced-scenes/frames'
+    video_masks_path = 'example_videos/imbalanced-scenes/masks'
+    output_masks_path_baseline = 'output/imbalanced-scenes/baseline'
+    output_masks_path_3_frames = 'output/imbalanced-scenes/3_frames'
 
     run_on_video(video_frames_path, video_masks_path, output_masks_path_baseline, frames_with_masks=[0], compute_iou=False)
-    run_on_video(video_frames_path, video_masks_path, output_masks_path_5_frames, frames_with_masks=[0, 259, 621, 785, 1401], compute_iou=False)
+    run_on_video(video_frames_path, video_masks_path, output_masks_path_3_frames, frames_with_masks=[0, 140, 830], compute_iou=False)

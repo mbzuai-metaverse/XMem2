@@ -13,14 +13,20 @@ class Configuration():
         parser.add_argument('--no_amp', action='store_true')
 
         # Data parameters
-        parser.add_argument('--static_root', help='Static training data root', default='../static')
-        parser.add_argument('--bl_root', help='Blender training data root', default='../BL30K')
-        parser.add_argument('--yv_root', help='YouTubeVOS data root', default='../YouTube')
-        parser.add_argument('--davis_root', help='DAVIS data root', default='../DAVIS')
+        parser.add_argument('--static_root', help='Static training data root', default='../Datasets/static')
+        parser.add_argument('--bl_root', help='Blender training data root', default='../Datasets/BL30K')
+        parser.add_argument('--yv_root', help='YouTubeVOS data root', default='../Datasets/YouTube')
+        parser.add_argument('--davis_root', help='DAVIS data root', default='../Datasets/DAVIS')
         parser.add_argument('--num_workers', help='Total number of dataloader workers across all GPUs processes', type=int, default=16)
 
-        parser.add_argument('--key_dim', default=64, type=int)
-        parser.add_argument('--value_dim', default=512, type=int)
+        parser.add_argument('--key_dim_f16', default=64, type=int)
+        parser.add_argument('--key_dim_f8', default=32, type=int)
+        parser.add_argument('--key_dim_f4', default=16, type=int)
+
+        parser.add_argument('--value_dim_f16', default=512, type=int)
+        parser.add_argument('--value_dim_f8', default=256, type=int)
+        parser.add_argument('--value_dim_f4', default=128, type=int)
+
         parser.add_argument('--hidden_dim', default=64, help='Set to =0 to disable', type=int)
 
         parser.add_argument('--deep_update_prob', default=0.2, type=float)

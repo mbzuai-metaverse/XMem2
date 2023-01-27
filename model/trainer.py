@@ -77,7 +77,7 @@ class XMemTrainer:
             filler_one = torch.zeros(1, dtype=torch.int64)
             hidden = torch.zeros((b, num_objects, self.config['hidden_dim'], *key_features.features_by_scale[16].key.shape[-2:]))
 
-            f16, f8, f4 = key_features.f16[:, 0], key_features.f8[:, 0], key_features.f4[:, 0]
+            f16, f8, f4 = key_features.features_by_scale[16].feature, key_features.features_by_scale[8].feature, key_features.features_by_scale[4].feature
             value_features: MutliscaleValues_16_8_4 = self.XMem('encode_value', frames[:,0], (f16, f8, f4), hidden, first_frame_gt[:,0])
             for scale in value_features.scales:
                 value_features.values_by_scale[scale] = value_features.values_by_scale[scale].unsqueeze(3) # add the time dimension

@@ -13,10 +13,10 @@ class Configuration():
         parser.add_argument('--no_amp', action='store_true')
 
         # Data parameters
-        parser.add_argument('--static_root', help='Static training data root', default='../static')
-        parser.add_argument('--bl_root', help='Blender training data root', default='../BL30K')
-        parser.add_argument('--yv_root', help='YouTubeVOS data root', default='../YouTube')
-        parser.add_argument('--davis_root', help='DAVIS data root', default='../DAVIS')
+        parser.add_argument('--static_root', help='Static training data root', default='../Datasets/static')
+        parser.add_argument('--bl_root', help='Blender training data root', default='../Datasets/BL30K') 
+        parser.add_argument('--yv_root', help='YouTubeVOS data root', default='../Datasets/YouTube')
+        parser.add_argument('--davis_root', help='DAVIS data root', default='.../Datasets/DAVIS')
         parser.add_argument('--num_workers', help='Total number of dataloader workers across all GPUs processes', type=int, default=16)
 
         parser.add_argument('--key_dim', default=64, type=int)
@@ -32,7 +32,7 @@ class Configuration():
         Batch sizes are effective -- you don't have to scale them when you scale the number processes
         """
         # Stage 0, static images
-        parser.add_argument('--s0_batch_size', default=16, type=int)
+        parser.add_argument('--s0_batch_size', default=8, type=int)
         parser.add_argument('--s0_iterations', default=150000, type=int)
         parser.add_argument('--s0_finetune', default=0, type=int)
         parser.add_argument('--s0_steps', nargs="*", default=[], type=int)
@@ -133,3 +133,9 @@ class Configuration():
 
     def __str__(self):
         return str(self.args)
+
+if __name__ == '__main__':
+    c = Configuration()
+    c.parse()
+    for k in sorted(c.args.keys()):
+        print(k, c.args[k])

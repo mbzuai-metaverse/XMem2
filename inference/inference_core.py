@@ -39,6 +39,15 @@ class InferenceCore:
         # self.all_labels = [l.item() for l in all_labels]
         self.all_labels = all_labels
 
+    def encode_frame_key(self, image):
+        image, self.pad = pad_divide_by(image, 16)
+        image = image.unsqueeze(0)  # add the batch dimension
+
+        key, shrinkage, selection, f16, f8, f4 = self.network.encode_key(image,
+                                                                         need_ek=True,
+                                                                         need_sk=True)
+
+        return key, shrinkage, selection
     def step(self, image, mask=None, valid_labels=None, end=False, manually_curated_masks=False, disable_memory_updates=False, do_not_add_mask_to_memory=False):
         # For feedback:
         #   1. We run the model as usual

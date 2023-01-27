@@ -1,5 +1,5 @@
 from ast import Dict
-import copy
+from copy import copy
 from dataclasses import dataclass
 from typing import Iterable, Optional
 import torch.nn.functional as F

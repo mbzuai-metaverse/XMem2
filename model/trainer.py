@@ -78,7 +78,7 @@ class XMemTrainer:
             hidden = torch.zeros((b, num_objects, self.config['hidden_dim'], *key_features.features_by_scale[16].key.shape[-2:]))
 
             f16, f8, f4 = key_features.features_by_scale[16].feature, key_features.features_by_scale[8].feature, key_features.features_by_scale[4].feature
-            value_features: MutliscaleValues_16_8_4 = self.XMem('encode_value', frames[:,0], (f16, f8, f4), hidden, first_frame_gt[:,0])
+            value_features: MutliscaleValues_16_8_4 = self.XMem('encode_value', frames[:,0], (f16[:,0], f8[:,0], f4[:,0]), hidden, first_frame_gt[:,0])
             for scale in value_features.scales:
                 value_features.values_by_scale[scale] = value_features.values_by_scale[scale].unsqueeze(3) # add the time dimension
 
@@ -115,7 +115,7 @@ class XMemTrainer:
                 memory_readouts = self.XMem('read_memory', key_features[:, :, :ti],
                                         ref_key_features, ref_value_features)
 
-                hidden, logits, masks = self.XMem('segment', (f16[:,ti], f8[:,ti], f4[:,ti]), *memory_readouts, 
+                hidden, logits, masks = self.XMem('segment', (f16[:,ti], f8[:,ti], f4[:,ti]), memory_readouts, 
                         hidden, selector, h_out=(ti < (self.num_frames-1)))
 
                 # No need to encode the last frame

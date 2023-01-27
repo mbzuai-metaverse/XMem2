@@ -249,13 +249,14 @@ class Decoder(nn.Module):
         self.fuser_f4 = FeatureFusionBlock(256, val_dim_f4, 128, 128)
 
         if hidden_dim > 0:
-            self.hidden_update = HiddenUpdater([512, 256, 256+1], 256, hidden_dim)
+            self.hidden_update = HiddenUpdater([512, 512, 384+1], 256, hidden_dim)
         else:
             self.hidden_update = None
         
         self.up_16_8 = UpsampleBlock(512, 512, 256) # 1/16 -> 1/8
-        self.up_8_4 = UpsampleBlock(256, 256, 256) # 1/8 -> 1/4
+        self.up_8_4 = UpsampleBlock(256, 512, 256) # 1/8 -> 1/4  # 512 not 256 because of concat of g8 and g8_mixed
 
+        self.pred_intermediate = GroupResBlock(384, 256)  # 384 not 256 because of concat of g4 (128) and g4_mixed (256)
         self.pred = nn.Conv2d(256, 1, kernel_size=3, padding=1, stride=1)
 
     def forward(self, f16, f8, f4, hidden_state, mem_f16, mem_f8, mem_f4, h_out=True):
@@ -273,19 +274,20 @@ class Decoder(nn.Module):
         else:
             g16 = self.fuser_f16(f16, mem_f16)
 
-        # should be [512, val_dim_f8]
         g8 = self.fuser_f8(f8, mem_f8)
-        g8_mixed = self.up_16_8(g8, g16)
+        g8_mixed = self.up_16_8(f8, g16)
+        g8_final = torch.cat([g8, g8_mixed], 2)  # 256 + 256 = 512
 
-        # should be [256, val_dim_f4]
         g4 = self.fuser_f4(f4, mem_f4)
-        g4_mixed = self.up_8_4(g4, g8_mixed)
+        g4_mixed = self.up_8_4(f4, g8_final)
+        g4_final = torch.cat([g4, g4_mixed], 2)  # 128 + 256 = 512
 
-        logits = self.pred(F.relu(g4_mixed.flatten(start_dim=0, end_dim=1)))
+        intermediate_logits = self.pred_intermediate(g4_final)
+        logits = self.pred(F.relu(intermediate_logits.flatten(start_dim=0, end_dim=1)))
 
         if h_out and self.hidden_update is not None:
-            g4_mixed = torch.cat([g4_mixed, logits.view(batch_size, num_objects, 1, *logits.shape[-2:])], 2)
-            hidden_state = self.hidden_update([g16, g8_mixed, g4_mixed], hidden_state)
+            g4_final_with_preds = torch.cat([g4_final, logits.view(batch_size, num_objects, 1, *logits.shape[-2:])], 2)
+            hidden_state = self.hidden_update([g16, g8_final, g4_final_with_preds], hidden_state)
         else:
             hidden_state = None
         

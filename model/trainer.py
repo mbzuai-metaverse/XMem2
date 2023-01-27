@@ -121,8 +121,14 @@ class XMemTrainer:
                 # No need to encode the last frame
                 if ti < (self.num_frames-1):
                     is_deep_update = np.random.rand() < self.deep_update_prob
-                    v16, hidden = self.XMem('encode_value', frames[:,ti], (f16[:,ti], f8[:,ti], f4[:,ti]), hidden, masks, is_deep_update=is_deep_update)
-                    values = torch.cat([values, v16.unsqueeze(3)], 3)
+                    curr_value_features: MutliscaleValues_16_8_4  = self.XMem('encode_value', frames[:,ti], (f16[:,ti], f8[:,ti], f4[:,ti]), hidden, masks, is_deep_update=is_deep_update)
+
+                    hidden = value_features.hidden
+                    for scale in value_features.scales:
+                        itself = value_features.values_by_scale[scale]
+                        new_value = curr_value_features.values_by_scale[scale]
+
+                        value_features.values_by_scale[scale] = torch.cat([itself, new_value.unsqueeze(3)], 3)
 
                 out[f'masks_{ti}'] = masks
                 out[f'logits_{ti}'] = logits

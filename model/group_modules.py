@@ -34,10 +34,10 @@ class GConv2D(nn.Conv2d):
 
 
 class GroupResBlock(nn.Module):
-    def __init__(self, in_dim, out_dim):
+    def __init__(self, in_dim, out_dim, disable_downsampling=False):
         super().__init__()
 
-        if in_dim == out_dim:
+        if in_dim == out_dim or disable_downsampling:
             self.downsample = None
         else:
             self.downsample = GConv2D(in_dim, out_dim, kernel_size=3, padding=1)

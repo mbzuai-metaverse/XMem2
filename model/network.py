@@ -179,7 +179,7 @@ class XMem(nn.Module):
 
             memories.append(memory)
 
-        return memory
+        return memories
 
     def segment(self, multi_scale_features, memory_readouts,
                     hidden_state, selector=None, h_out=True, strip_bg=True, holistic_features=None): 

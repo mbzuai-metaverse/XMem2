@@ -28,7 +28,7 @@ class XMemTrainer:
 
         self.XMem = nn.parallel.DistributedDataParallel(
             XMem(config).cuda(), 
-            device_ids=[local_rank], output_device=local_rank, broadcast_buffers=False, find_unused_parameters=True)
+            device_ids=[local_rank], output_device=local_rank, broadcast_buffers=False)
 
         # Set up logger when local_rank=0
         self.logger = logger
@@ -72,22 +72,23 @@ class XMemTrainer:
 
         with torch.cuda.amp.autocast(enabled=self.config['amp']):
             # image features never change, compute once
-            key_features: MultiscaleFeatures_16_8_4 = self.XMem('encode_key', frames)
+            global_key_features: MultiscaleFeatures_16_8_4 = self.XMem('encode_key', frames)
 
             filler_one = torch.zeros(1, dtype=torch.int64)
-            hidden = torch.zeros((b, num_objects, self.config['hidden_dim'], *key_features.features_by_scale[16].key.shape[-2:]))
+            hidden = torch.zeros((b, num_objects, self.config['hidden_dim'], *global_key_features.features_by_scale[16].key.shape[-2:]))
 
-            f16, f8, f4 = key_features.features_by_scale[16].feature, key_features.features_by_scale[8].feature, key_features.features_by_scale[4].feature
-            value_features: MutliscaleValues_16_8_4 = self.XMem('encode_value', frames[:,0], (f16[:,0], f8[:,0], f4[:,0]), hidden, first_frame_gt[:,0])
-            for scale in value_features.scales:
-                value_features.values_by_scale[scale] = value_features.values_by_scale[scale].unsqueeze(3) # add the time dimension
+            f16, f8, f4 = global_key_features.features_by_scale[16].feature, global_key_features.features_by_scale[8].feature, global_key_features.features_by_scale[4].feature
+            
+            global_value_features: MutliscaleValues_16_8_4 = self.XMem('encode_value', frames[:,0], (f16[:,0], f8[:,0], f4[:,0]), hidden, first_frame_gt[:,0])
+            hidden = global_value_features.hidden
 
-            # values = v16.unsqueeze(3) # add the time dimension
+            for scale in global_value_features.scales:
+                global_value_features.values_by_scale[scale] = global_value_features.values_by_scale[scale].unsqueeze(3) # add the time dimension
 
             for ti in range(1, self.num_frames):
                 if ti <= self.num_ref_frames:
-                    ref_value_features = value_features
-                    ref_key_features = key_features[:, :, :ti]
+                    ref_value_features = global_value_features
+                    ref_key_features = global_key_features[:, :, :ti]
                 else:
                     # pick num_ref_frames random frames
                     # this is not very efficient but I think we would 
@@ -96,13 +97,13 @@ class XMemTrainer:
                         torch.cat([filler_one, torch.randperm(ti-1)[:self.num_ref_frames-1]+1])
                     for _ in range(b)]
 
-                    ref_value_features = value_features.deep_copy()
+                    ref_value_features = global_value_features.deep_copy()
                     for scale in ref_value_features.scales:
                         ref_value_features.values_by_scale[scale] = torch.stack([
                             ref_value_features.values_by_scale[scale][bi, :, :, indices[bi]] for bi in range(b)
                         ], 0) 
 
-                    ref_key_features = key_features.deep_copy()
+                    ref_key_features = global_key_features.deep_copy()
                     for scale in ref_key_features.scales:
                         ref_key_features[scale].key = torch.stack([
                             ref_key_features[scale].key [bi, :, indices[bi]] for bi in range(b)
@@ -112,7 +113,7 @@ class XMemTrainer:
                         ], 0) if ref_key_features[scale].shrinkage is not None else None
 
                 # Segment frame ti
-                memory_readouts = self.XMem('read_memory', key_features[:, :, ti],
+                memory_readouts = self.XMem('read_memory', global_key_features[:, :, ti],
                                         ref_key_features, ref_value_features)
 
                 hidden, logits, masks = self.XMem('segment', (f16[:,ti], f8[:,ti], f4[:,ti]), memory_readouts, 
@@ -120,15 +121,15 @@ class XMemTrainer:
 
                 # No need to encode the last frame
                 if ti < (self.num_frames-1):
-                    is_deep_update = np.random.rand() < self.deep_update_prob
+                    is_deep_update = False # np.random.rand() < self.deep_update_prob
                     curr_value_features: MutliscaleValues_16_8_4  = self.XMem('encode_value', frames[:,ti], (f16[:,ti], f8[:,ti], f4[:,ti]), hidden, masks, is_deep_update=is_deep_update)
 
-                    hidden = value_features.hidden
-                    for scale in value_features.scales:
-                        itself = value_features.values_by_scale[scale]
+                    hidden = curr_value_features.hidden
+                    for scale in global_value_features.scales:
+                        itself = global_value_features.values_by_scale[scale]
                         new_value = curr_value_features.values_by_scale[scale]
 
-                        value_features.values_by_scale[scale] = torch.cat([itself, new_value.unsqueeze(3)], 3)
+                        global_value_features.values_by_scale[scale] = torch.cat([itself, new_value.unsqueeze(3)], 3)
 
                 out[f'masks_{ti}'] = masks
                 out[f'logits_{ti}'] = logits

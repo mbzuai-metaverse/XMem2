@@ -127,6 +127,8 @@ class ValueEncoder(nn.Module):
         self.distributor = MainToGroupDistributor()
 
         channels_modifiers = {
+            # Not related to the memory shapes
+            # Just shapes of backbone output
             # stop_at -> num_channels denominator
             3: 1,
             2: 2,
@@ -244,20 +246,43 @@ class Decoder(nn.Module):
         super().__init__()
         val_dim_f16, val_dim_f8, val_dim_f4 = val_dims
 
-        self.fuser_f16 = FeatureFusionBlock(1024, val_dim_f16+hidden_dim, 512, 512)
-        self.fuser_f8 = FeatureFusionBlock(512, val_dim_f8, 256, 256)
-        self.fuser_f4 = FeatureFusionBlock(256, val_dim_f4, 128, 128)
+        # backbone feature sizes, NOT hyperparameters
+        f16_dim = 1024
+        f8_dim = 512
+        f4_dim = 256
+
+        fuser_16_dim = 512
+        fuser_8_dim = 128
+        fuser_4_dim = 32
+
+        self.fuser_f16 = FeatureFusionBlock(f16_dim, val_dim_f16+hidden_dim, fuser_16_dim, fuser_16_dim)
+        self.fuser_f8 = FeatureFusionBlock(f8_dim, val_dim_f8, fuser_8_dim, fuser_8_dim)
+        self.fuser_f4 = FeatureFusionBlock(f4_dim, val_dim_f4, fuser_4_dim, fuser_4_dim)
+        
+        up_16_8_out_dim = 128
+        self.up_16_8 = UpsampleBlock(f8_dim, fuser_16_dim, up_16_8_out_dim) # 1/16 -> 1/8
+        
+        up_8_4_out_dim = 128
+        self.up_8_4 = UpsampleBlock(f4_dim, (fuser_8_dim + up_16_8_out_dim), up_8_4_out_dim) # 1/8 -> 1/4 
+
+        final_dim = 128 #(fuser_4_dim + up_8_4_out_dim)
+        print(f"Prediction feature maps size: {final_dim}")
+        self.pred_intermediate = GroupResBlock((fuser_4_dim + up_8_4_out_dim), final_dim)  # this is memory-intensive because feature maps have high spatial resolution already
+        self.pred = nn.Conv2d(final_dim, 1, kernel_size=3, padding=1, stride=1)
 
         if hidden_dim > 0:
-            self.hidden_update = HiddenUpdater([512, 512, 384+1], 256, hidden_dim)
+            hidden_mid_dim = 256
+            self.hidden_update = HiddenUpdater(
+                [
+                    fuser_16_dim,
+                    (fuser_8_dim + up_16_8_out_dim),
+                    (fuser_4_dim + up_8_4_out_dim + 1)
+                ],
+                hidden_mid_dim, 
+                hidden_dim
+            )
         else:
             self.hidden_update = None
-        
-        self.up_16_8 = UpsampleBlock(512, 512, 256) # 1/16 -> 1/8
-        self.up_8_4 = UpsampleBlock(256, 512, 256) # 1/8 -> 1/4  # 512 not 256 because of concat of g8 and g8_mixed
-
-        self.pred_intermediate = GroupResBlock(384, 256)  # 384 not 256 because of concat of g4 (128) and g4_mixed (256)
-        self.pred = nn.Conv2d(256, 1, kernel_size=3, padding=1, stride=1)
 
     def forward(self, f16, f8, f4, hidden_state, mem_f16, mem_f8, mem_f4, h_out=True):
         """
@@ -276,11 +301,11 @@ class Decoder(nn.Module):
 
         g8 = self.fuser_f8(f8, mem_f8)
         g8_mixed = self.up_16_8(f8, g16)
-        g8_final = torch.cat([g8, g8_mixed], 2)  # 256 + 256 = 512
+        g8_final = torch.cat([g8, g8_mixed], 2) 
 
         g4 = self.fuser_f4(f4, mem_f4)
         g4_mixed = self.up_8_4(f4, g8_final)
-        g4_final = torch.cat([g4, g4_mixed], 2)  # 128 + 256 = 512
+        g4_final = torch.cat([g4, g4_mixed], 2)
 
         intermediate_logits = self.pred_intermediate(g4_final)
         logits = self.pred(F.relu(intermediate_logits.flatten(start_dim=0, end_dim=1)))

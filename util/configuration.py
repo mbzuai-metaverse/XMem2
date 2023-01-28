@@ -24,8 +24,8 @@ class Configuration():
         parser.add_argument('--key_dim_f4', default=16, type=int)
 
         parser.add_argument('--value_dim_f16', default=512, type=int)
-        parser.add_argument('--value_dim_f8', default=256, type=int)
-        parser.add_argument('--value_dim_f4', default=128, type=int)
+        parser.add_argument('--value_dim_f8', default=128, type=int)
+        parser.add_argument('--value_dim_f4', default=32, type=int)
 
         parser.add_argument('--hidden_dim', default=64, help='Set to =0 to disable', type=int)
 

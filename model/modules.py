@@ -286,11 +286,9 @@ class Decoder(nn.Module):
         logits = self.pred(F.relu(intermediate_logits.flatten(start_dim=0, end_dim=1)))
 
         if h_out and self.hidden_update is not None:
-            print("!!! Using hidden!")
             g4_final_with_preds = torch.cat([g4_final, logits.view(batch_size, num_objects, 1, *logits.shape[-2:])], 2)
             hidden_state = self.hidden_update([g16, g8_final, g4_final_with_preds], hidden_state)
         else:
-            print("!!! NOT using hidden, last iteration!")
             hidden_state = None
         
         logits = F.interpolate(logits, scale_factor=4, mode='bilinear', align_corners=False)

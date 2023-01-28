@@ -28,7 +28,7 @@ class XMemTrainer:
 
         self.XMem = nn.parallel.DistributedDataParallel(
             XMem(config).cuda(), 
-            device_ids=[local_rank], output_device=local_rank, broadcast_buffers=False)
+            device_ids=[local_rank], output_device=local_rank, broadcast_buffers=False, find_unused_parameters=True)
 
         # Set up logger when local_rank=0
         self.logger = logger
@@ -112,7 +112,7 @@ class XMemTrainer:
                         ], 0) if ref_key_features[scale].shrinkage is not None else None
 
                 # Segment frame ti
-                memory_readouts = self.XMem('read_memory', key_features[:, :, :ti],
+                memory_readouts = self.XMem('read_memory', key_features[:, :, ti],
                                         ref_key_features, ref_value_features)
 
                 hidden, logits, masks = self.XMem('segment', (f16[:,ti], f8[:,ti], f4[:,ti]), memory_readouts, 

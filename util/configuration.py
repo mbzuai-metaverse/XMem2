@@ -90,6 +90,7 @@ class Configuration():
         # Loading
         parser.add_argument('--load_network', help='Path to pretrained network weight only')
         parser.add_argument('--load_checkpoint', help='Path to the checkpoint file, including network, optimizer and such')
+        parser.add_argument('--checkpoint_file_list', help='Path txt file with paths to checkpoints to use (1 per line). The last entry will be used to load the checkpoint', default='checkpoints_order.txt')
 
         # Logging information
         parser.add_argument('--log_text_interval', default=100, type=int)

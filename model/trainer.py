@@ -51,6 +51,8 @@ class XMemTrainer:
         self.log_image_interval = config['log_image_interval']
         self.save_network_interval = config['save_network_interval']
         self.save_checkpoint_interval = config['save_checkpoint_interval']
+        self.checkpoint_file_list = config['checkpoint_file_list']
+
         if config['debug']:
             self.log_text_interval = self.log_image_interval = 1
 
@@ -199,6 +201,10 @@ class XMemTrainer:
             'optimizer': self.optimizer.state_dict(),
             'scheduler': self.scheduler.state_dict()}
         torch.save(checkpoint, checkpoint_path)
+
+        with open(self.checkpoint_file_list, 'at') as f_out:
+            f_out.write(checkpoint_path + '\n')
+
         print(f'Checkpoint saved to {checkpoint_path}.')
 
     def load_checkpoint(self, path):

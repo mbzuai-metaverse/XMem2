@@ -1,6 +1,7 @@
 import datetime
 from os import path
 import math
+import os
 import git
 
 import random
@@ -92,7 +93,14 @@ for si, stage in enumerate(stages_to_perform):
 
     # Load pertrained model if needed
     if raw_config['load_checkpoint'] is not None:
-        total_iter = model.load_checkpoint(raw_config['load_checkpoint'])
+        list_of_checkpoints = raw_config['checkpoint_file_list']
+        if os.path.exists(list_of_checkpoints) and os.stat(list_of_checkpoints).st_size > 0 and raw_config['load_checkpoint'] == 'last':
+            with open(list_of_checkpoints, 'rt') as f_checkpoints:
+                path = f_checkpoints.readlines()[-1].strip()
+            total_iter = model.load_checkpoint(path)
+        else:
+            total_iter = model.load_checkpoint(raw_config['load_checkpoint'])
+
         raw_config['load_checkpoint'] = None
         print('Previously trained model loaded!')
     else:

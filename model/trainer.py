@@ -222,7 +222,7 @@ class XMemTrainer:
         self.optimizer.load_state_dict(optimizer)
         self.scheduler.load_state_dict(scheduler)
 
-        print('Network weights, optimizer states, and scheduler states loaded.')
+        print(f'Network weights, optimizer states, and scheduler states loaded from {path}.')
 
         return it
 

@@ -92,19 +92,20 @@ for si, stage in enumerate(stages_to_perform):
         model = XMemTrainer(config, local_rank=local_rank, world_size=world_size).train()
 
     # Load pertrained model if needed
+    total_iter = 0
     if raw_config['load_checkpoint'] is not None:
-        list_of_checkpoints = raw_config['checkpoint_file_list']
-        if os.path.exists(list_of_checkpoints) and os.stat(list_of_checkpoints).st_size > 0 and raw_config['load_checkpoint'] == 'last':
-            with open(list_of_checkpoints, 'rt') as f_checkpoints:
-                path = f_checkpoints.readlines()[-1].strip()
-            total_iter = model.load_checkpoint(path)
+        if raw_config['load_checkpoint'] == 'last':
+            # loading the last saved checkpoint
+            list_of_checkpoints = raw_config['checkpoint_file_list']
+            if os.path.exists(list_of_checkpoints) and os.stat(list_of_checkpoints).st_size > 0:
+                with open(list_of_checkpoints, 'rt') as f_checkpoints:
+                    checkpoint_path = f_checkpoints.readlines()[-1].strip()
+                total_iter = model.load_checkpoint(checkpoint_path)
         else:
             total_iter = model.load_checkpoint(raw_config['load_checkpoint'])
 
         raw_config['load_checkpoint'] = None
         print('Previously trained model loaded!')
-    else:
-        total_iter = 0
 
     if network_in_memory is not None:
         print('I am loading network from the previous stage')

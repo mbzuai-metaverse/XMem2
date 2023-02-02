@@ -14,4 +14,5 @@ OMP_NUM_THREADS=6 python -m torch.distributed.run --master_port 25763 --nproc_pe
     --s0_start_warm="$START_WARM" \
     --s0_end_warm="$END_WARM" \
     --s0_iterations="$NUM_ITER" \
-    --num_workers="$NUM_WORKERS"
+    --num_workers="$NUM_WORKERS" \ 
+    --load_checkpoint='last'

@@ -150,7 +150,7 @@ class ValueEncoder(nn.Module):
         return g, h
  
 
-class ValueEncoder_2(nn.Module):
+class ValueEncoder_u2net(nn.Module):
     def __init__(self, value_dim, hidden_dim, single_object=False, restore_path=""):
         super().__init__()
         
@@ -274,7 +274,7 @@ class KeyEncoder(nn.Module):
         return f16, f8, f4
     
 
-class KeyEncoder_2(nn.Module): #this is what ari needs to edit 
+class KeyEncoder_u2net(nn.Module): #this is what ari needs to edit 
     def __init__(self, restore_path=""):
         super().__init__()
         network = U2NET()  

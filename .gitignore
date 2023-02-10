@@ -138,3 +138,11 @@ dmypy.json
 
 output/
 example_videos/
+torchlogs/
+*.png
+*.csv
+*.txt
+*junk*
+*.profile
+
+.DS_Store

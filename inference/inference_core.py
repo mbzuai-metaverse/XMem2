@@ -68,7 +68,7 @@ class InferenceCore:
 
         is_ignore = do_not_add_mask_to_memory  # to avoid adding permanent memory frames twice, since they are alredy in the memory
 
-        need_segment = (self.curr_ti > 0) and ((valid_labels is None) or (len(self.all_labels) != len(valid_labels)))
+        need_segment = (valid_labels is None) or (len(self.all_labels) != len(valid_labels))
         is_deep_update = (
             (self.deep_update_sync and is_mem_frame) or  # synchronized
             (not self.deep_update_sync and self.curr_ti-self.last_deep_update_ti >= self.deep_update_every) # no-sync

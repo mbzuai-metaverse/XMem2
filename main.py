@@ -1,4 +1,4 @@
-from run_on_video import run_on_video, predict_annotation_candidates
+from inference.run_on_video import run_on_video, predict_annotation_candidates
 
 
 if __name__ == '__main__':

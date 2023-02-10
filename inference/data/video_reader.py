@@ -16,7 +16,7 @@ class VideoReader(Dataset):
     """
     This class is used to read a video, one frame at a time
     """
-    def __init__(self, vid_name, image_dir, mask_dir, size=-1, to_save=None, use_all_mask=False, size_dir=None):
+    def __init__(self, vid_name, image_dir, mask_dir, size=-1, to_save=None, use_all_masks=False, size_dir=None):
         """
         image_dir - points to a directory of jpg images
         mask_dir - points to a directory of png masks
@@ -30,7 +30,7 @@ class VideoReader(Dataset):
         self.image_dir = image_dir
         self.mask_dir = mask_dir
         self.to_save = to_save
-        self.use_all_mask = use_all_mask
+        self.use_all_masks = use_all_masks
         if size_dir is None:
             self.size_dir = self.image_dir
         else:
@@ -72,10 +72,13 @@ class VideoReader(Dataset):
             shape = np.array(size_im).shape[:2]
 
         gt_path = path.join(self.mask_dir, frame[:-4]+'.png')
+        if not os.path.exists(gt_path):
+            gt_path = path.join(self.mask_dir, frame[:-4]+'.PNG')
+
         data['raw_image_tensor'] = FT.to_tensor(img)  # for dataloaders it cannot be raw PIL.Image, only tensors
         img = self.im_transform(img)
 
-        load_mask = self.use_all_mask or (gt_path == self.first_gt_path)
+        load_mask = self.use_all_masks or (gt_path == self.first_gt_path)
         if load_mask and path.exists(gt_path):
             mask = Image.open(gt_path).convert('P')
             mask = np.array(mask, dtype=np.uint8)

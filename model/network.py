@@ -302,7 +302,7 @@ class XMem(nn.Module):
     def load_weights(self, src_dict, init_as_zero_if_needed=False):
         # Maps SO weight (without other_mask) to MO weight (with other_mask)
         for k in list(src_dict.keys()):
-            if k == 'value_encoder.conv1.weight':
+            if k in {'value_encoder_f16.conv1.weight', 'value_encoder_f8.conv1.weight', 'value_encoder_f4.conv1.weight'}:
                 if src_dict[k].shape[1] == 4:
                     print('Converting weights from single object to multiple objects.')
                     pads = torch.zeros((64,1,7,7), device=src_dict[k].device)

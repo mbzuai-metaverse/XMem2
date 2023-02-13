@@ -107,12 +107,12 @@ class XMemTrainer:
 
                     ref_key_features = global_key_features.deep_copy()
                     for scale in ref_key_features.scales:
-                        ref_key_features[scale].key = torch.stack([
-                            ref_key_features[scale].key [bi, :, indices[bi]] for bi in range(b)
+                        ref_key_features.features_by_scale[scale].key = torch.stack([
+                            ref_key_features.features_by_scale[scale].key[bi, :, indices[bi]] for bi in range(b)
                         ], 0)
-                        ref_key_features[scale].shrinkage = torch.stack([
-                            ref_key_features[scale].shrinkage[bi, :, indices[bi]] for bi in range(b)
-                        ], 0) if ref_key_features[scale].shrinkage is not None else None
+                        ref_key_features.features_by_scale[scale].shrinkage = torch.stack([
+                            ref_key_features.features_by_scale[scale].shrinkage[bi, :, indices[bi]] for bi in range(b)
+                        ], 0) if ref_key_features.features_by_scale[scale].shrinkage is not None else None
 
                 # Segment frame ti
                 memory_readouts = self.XMem('read_memory', global_key_features[:, :, ti],

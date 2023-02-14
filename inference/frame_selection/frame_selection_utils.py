@@ -16,7 +16,6 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from util.tensor_util import get_bbox_from_mask
-from inference.run_on_video import run_on_video, predict_annotation_candidates, KNOWN_ANNOTATION_PREDICTORS
 
 
 def select_n_frame_candidates(preds_df: pd.DataFrame, uncertainty_name: str, n=5):

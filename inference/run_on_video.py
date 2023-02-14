@@ -16,6 +16,7 @@ from tqdm import tqdm
 from PIL import Image
 
 from model.network import XMem
+from util.image_saver import create_overlay, save_image
 from util.tensor_util import compute_tensor_iou
 from inference.inference_core import InferenceCore
 from inference.data.video_reader import VideoReader
@@ -45,7 +46,9 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
                         uncertainty_name: str = None,
                         only_predict_frames_to_annotate_and_quit=0,
                         overwrite_config: dict = None,
-                        frame_selector_func: callable = None):
+                        frame_selector_func: callable = None,
+                        save_overlay=True,
+                        b_and_w_color=(255, 0, 0)):
     torch.autograd.set_grad_enabled(False)
     frames_with_masks = set(frames_with_masks)
     config = {
@@ -257,7 +260,6 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
                     all_samples = torch.stack(
                         [x.unsqueeze(0) for x in dry_run_preds + [prob.cpu()]], dim=-1).numpy()
                     score = bald.compute_score(all_samples)
-                    # TODO: can also return the exact pixels for every frame? As a suggestion on what to label
                     curr_stat['bald'] = float(np.squeeze(score).mean())
                 elif compute_disparity:
                     disparity_stats = disparity_func(
@@ -292,13 +294,16 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
 
             # Save the mask
             if config['save_masks']:
-                this_out_path = path.join(config['masks_out_path'], vid_name)
-                os.makedirs(this_out_path, exist_ok=True)
+                original_img = FT.to_pil_image(rgb_raw_tensor)
+
                 out_mask = mapper.remap_index_mask(out_mask)
                 out_img = Image.fromarray(out_mask)
-                if vid_reader.get_palette() is not None:
-                    out_img.putpalette(vid_reader.get_palette())
-                out_img.save(os.path.join(this_out_path, frame[:-4]+'.png'))
+                out_img = vid_reader.map_the_colors_back(out_img)
+                save_image(out_img, frame, vid_name, general_dir_path=config['masks_out_path'], sub_dir_name='masks')
+
+                if save_overlay:
+                    overlaid_img = create_overlay(original_img, out_img, color_if_black_and_white=b_and_w_color)
+                    save_image(overlaid_img, frame, vid_name, general_dir_path=config['masks_out_path'], sub_dir_name='overlay')
 
             if False:  # args.save_scores:
                 np_path = path.join(args.output, 'Scores', vid_name)

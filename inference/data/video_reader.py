@@ -37,7 +37,7 @@ class VideoReader(Dataset):
             self.size_dir = size_dir
 
         self.frames = sorted(os.listdir(self.image_dir))
-        self.palette = Image.open(path.join(mask_dir, sorted(os.listdir(mask_dir))[0])).getpalette()
+        self.reference_mask = Image.open(path.join(mask_dir, sorted(os.listdir(mask_dir))[0])).convert('P')
         self.first_gt_path = path.join(self.mask_dir, sorted(os.listdir(self.mask_dir))[0])
 
         if size < 0:
@@ -98,8 +98,10 @@ class VideoReader(Dataset):
         return F.interpolate(mask, (int(h/min_hw*self.size), int(w/min_hw*self.size)), 
                     mode='nearest')
 
-    def get_palette(self):
-        return self.palette
+    def map_the_colors_back(self, pred_mask: Image.Image):
+        # https://stackoverflow.com/questions/29433243/convert-image-to-specific-palette-using-pil-without-dithering
+        # dither=Dither.NONE just in case
+        return pred_mask.quantize(palette=self.reference_mask, dither=Image.Dither.NONE).convert('RGB')
 
     def __len__(self):
         return len(self.frames)

@@ -172,9 +172,9 @@ def create_overlay(img: Image.Image, mask: Image.Image, mask_alpha=0.5, color_if
 
     return overlay
 
-def save_image(img: Image.Image, frame_name, video_name, general_dir_path, sub_dir_name='masks'):
+def save_image(img: Image.Image, frame_name, video_name, general_dir_path, sub_dir_name='masks', extension='.png'):
     this_out_path = os.path.join(general_dir_path, video_name, sub_dir_name)
     os.makedirs(this_out_path, exist_ok=True)
 
-    img_save_path = os.path.join(this_out_path, frame_name[:-4]+'.png')
+    img_save_path = os.path.join(this_out_path, frame_name[:-4] + extension)
     cv2.imwrite(img_save_path, cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR))

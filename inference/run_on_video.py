@@ -299,11 +299,11 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
                 out_mask = mapper.remap_index_mask(out_mask)
                 out_img = Image.fromarray(out_mask)
                 out_img = vid_reader.map_the_colors_back(out_img)
-                save_image(out_img, frame, vid_name, general_dir_path=config['masks_out_path'], sub_dir_name='masks')
+                save_image(out_img, frame, vid_name, general_dir_path=config['masks_out_path'], sub_dir_name='masks', extension='.png')
 
                 if save_overlay:
                     overlaid_img = create_overlay(original_img, out_img, color_if_black_and_white=b_and_w_color)
-                    save_image(overlaid_img, frame, vid_name, general_dir_path=config['masks_out_path'], sub_dir_name='overlay')
+                    save_image(overlaid_img, frame, vid_name, general_dir_path=config['masks_out_path'], sub_dir_name='overlay', extension='.jpg')
 
             if False:  # args.save_scores:
                 np_path = path.join(args.output, 'Scores', vid_name)
@@ -327,6 +327,7 @@ def run_on_video(
     frames_with_masks: Iterable[int] = (0, ),
     compute_iou=False,
     print_progress=True,
+    **kwargs
 ) -> pd.DataFrame:
     """
     Args:
@@ -354,7 +355,8 @@ def run_on_video(
         compute_uncertainty=False,
         compute_iou=compute_iou,
         print_progress=print_progress,
-        manually_curated_masks=False
+        manually_curated_masks=False,
+         **kwargs
     )
 
 

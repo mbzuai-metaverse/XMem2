@@ -123,17 +123,17 @@ def get_determenistic_augmentations(img_size=None, mask=None, subset: str = None
     identity = torch.nn.Identity()
     identity.name = 'identity'
 
-    if mask is not None:
-        if mask.any():
-            min_y, min_x, max_y, max_x = get_bbox_from_mask(mask)
-            h, w = mask.shape[-2:]
-            crop_mask = partial(FT.resized_crop, top=min_y - 10, left=min_x - 10,
-                                height=max_y - min_y + 10, width=max_x - min_x + 10, size=(w, h))
-            crop_mask.name = 'crop_mask'
-        else:
-            crop_mask = identity  # if the mask is empty
-    else:
-        crop_mask = None
+    # if mask is not None:
+    #     if mask.any():
+    #         min_y, min_x, max_y, max_x = get_bbox_from_mask(mask)
+    #         h, w = mask.shape[-2:]
+    #         crop_mask = partial(FT.resized_crop, top=min_y - 10, left=min_x - 10,
+    #                             height=max_y - min_y + 10, width=max_x - min_x + 10, size=(w, h))
+    #         crop_mask.name = 'crop_mask'
+    #     else:
+    #         crop_mask = identity  # if the mask is empty
+    # else:
+    crop_mask = None
 
     bright.name = 'bright'
     dark.name = 'dark'

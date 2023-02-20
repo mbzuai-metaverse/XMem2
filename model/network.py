@@ -267,13 +267,13 @@ class XMem(nn.Module):
                 self.value_dim_f16 = config['value_dim_f16']
 
             if 'value_dim_f8' not in config:
-                self.value_dim_f8 = 256
+                self.value_dim_f8 = 128
                 print(f'value_dim_f8 not found in config. Set to default {self.value_dim_f8}')
             else:
                 self.value_dim_f8 = config['value_dim_f8']
 
             if 'value_dim_f4' not in config:
-                self.value_dim_f4 = 128
+                self.value_dim_f4 = 32
                 print(f'value_dim_f4 not found in config. Set to default {self.value_dim_f4}')
             else:
                 self.value_dim_f4 = config['value_dim_f4']

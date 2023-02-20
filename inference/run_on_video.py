@@ -71,7 +71,15 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
         's2m_model': 'saves/s2m.pth',
         'size': 480,
         'top_k': 30,
-        'value_dim': 512,
+
+        'key_dim_f16': 64,
+        'key_dim_f8': 32,
+        'key_dim_f4': 16,
+
+        'value_dim_f16': 512,
+        'value_dim_f8': 128,
+        'value_dim_f4': 32,
+
         # f'../VIDEOS/RESULTS/XMem_memory/thanks_two_face_5_frames/',
         'masks_out_path': masks_out_path,
         'workspace': None,

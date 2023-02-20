@@ -16,7 +16,7 @@ class VideoReader(Dataset):
     """
     This class is used to read a video, one frame at a time
     """
-    def __init__(self, vid_name, image_dir, mask_dir, size=-1, to_save=None, use_all_mask=False, size_dir=None):
+    def __init__(self, vid_name, image_dir, mask_dir, size=-1, to_save=None, use_all_masks=False, size_dir=None):
         """
         image_dir - points to a directory of jpg images
         mask_dir - points to a directory of png masks
@@ -30,14 +30,14 @@ class VideoReader(Dataset):
         self.image_dir = image_dir
         self.mask_dir = mask_dir
         self.to_save = to_save
-        self.use_all_mask = use_all_mask
+        self.use_all_masks = use_all_masks
         if size_dir is None:
             self.size_dir = self.image_dir
         else:
             self.size_dir = size_dir
 
         self.frames = sorted(os.listdir(self.image_dir))
-        self.palette = Image.open(path.join(mask_dir, sorted(os.listdir(mask_dir))[0])).getpalette()
+        self.reference_mask = Image.open(path.join(mask_dir, sorted(os.listdir(mask_dir))[0])).convert('P')
         self.first_gt_path = path.join(self.mask_dir, sorted(os.listdir(self.mask_dir))[0])
 
         if size < 0:
@@ -72,10 +72,13 @@ class VideoReader(Dataset):
             shape = np.array(size_im).shape[:2]
 
         gt_path = path.join(self.mask_dir, frame[:-4]+'.png')
+        if not os.path.exists(gt_path):
+            gt_path = path.join(self.mask_dir, frame[:-4]+'.PNG')
+
         data['raw_image_tensor'] = FT.to_tensor(img)  # for dataloaders it cannot be raw PIL.Image, only tensors
         img = self.im_transform(img)
 
-        load_mask = self.use_all_mask or (gt_path == self.first_gt_path)
+        load_mask = self.use_all_masks or (gt_path == self.first_gt_path)
         if load_mask and path.exists(gt_path):
             mask = Image.open(gt_path).convert('P')
             mask = np.array(mask, dtype=np.uint8)
@@ -95,8 +98,10 @@ class VideoReader(Dataset):
         return F.interpolate(mask, (int(h/min_hw*self.size), int(w/min_hw*self.size)), 
                     mode='nearest')
 
-    def get_palette(self):
-        return self.palette
+    def map_the_colors_back(self, pred_mask: Image.Image):
+        # https://stackoverflow.com/questions/29433243/convert-image-to-specific-palette-using-pil-without-dithering
+        # dither=Dither.NONE just in case
+        return pred_mask.quantize(palette=self.reference_mask, dither=Image.Dither.NONE).convert('RGB')
 
     def __len__(self):
         return len(self.frames)

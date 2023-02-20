@@ -38,7 +38,7 @@ class Configuration():
         Batch sizes are effective -- you don't have to scale them when you scale the number processes
         """
         # Stage 0, static images
-        parser.add_argument('--s0_batch_size', default=16, type=int)
+        parser.add_argument('--s0_batch_size', default=8, type=int)
         parser.add_argument('--s0_iterations', default=150000, type=int)
         parser.add_argument('--s0_finetune', default=0, type=int)
         parser.add_argument('--s0_steps', nargs="*", default=[], type=int)
@@ -140,3 +140,9 @@ class Configuration():
 
     def __str__(self):
         return str(self.args)
+
+if __name__ == '__main__':
+    c = Configuration()
+    c.parse()
+    for k in sorted(c.args.keys()):
+        print(k, c.args[k])

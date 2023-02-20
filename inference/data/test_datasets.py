@@ -89,7 +89,7 @@ class YouTubeVOSTestDataset:
                 path.join(self.mask_dir, video),
                 size=self.size,
                 to_save=self.req_frame_list[video], 
-                use_all_mask=True
+                use_all_masks=True
             )
 
     def __len__(self):

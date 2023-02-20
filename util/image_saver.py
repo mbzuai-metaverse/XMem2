@@ -1,5 +1,8 @@
+import os
+from time import perf_counter
 import cv2
 import numpy as np
+from PIL import Image
 
 import torch
 from dataset.range_transform import inv_im_trans
@@ -134,3 +137,44 @@ def pool_pairs(images, size, num_objects):
 
 
     return get_image_array(req_images, size, key_captions)
+
+def _check_if_black_and_white(img: Image.Image):
+    unique_colors = img.getcolors()
+    if len(unique_colors) > 2:
+        return False
+
+    if len(unique_colors) == 1:
+        return True  # just a black image
+
+    for _, color_rgb in unique_colors:
+        if color_rgb == (255, 255, 255):
+            return True
+
+    return False
+
+def create_overlay(img: Image.Image, mask: Image.Image, mask_alpha=0.5, color_if_black_and_white=(255, 0, 0)):  # all RGB
+    mask = mask.convert('RGB')
+    is_b_and_w  = _check_if_black_and_white(mask) 
+
+    if img.size != mask.size:
+        mask = mask.resize(img.size, resample=Image.NEAREST)
+
+    mask_arr = np.array(mask)
+
+    if is_b_and_w:
+        mask_arr = np.where(mask_arr, np.array(color_if_black_and_white), mask_arr).astype(np.uint8)
+        mask = Image.fromarray(mask_arr, mode='RGB')
+
+    alpha_mask = np.full(mask_arr.shape[0:2], 255)
+    alpha_mask[cv2.cvtColor(mask_arr, cv2.COLOR_BGR2GRAY) > 0] = int(mask_alpha * 255)  # 255 for black (to keep original image in full), `mask_alpha` for predicted pixels
+
+    overlay = Image.composite(img, mask, Image.fromarray(alpha_mask.astype(np.uint8), mode='L'))
+
+    return overlay
+
+def save_image(img: Image.Image, frame_name, video_name, general_dir_path, sub_dir_name='masks', extension='.png'):
+    this_out_path = os.path.join(general_dir_path, video_name, sub_dir_name)
+    os.makedirs(this_out_path, exist_ok=True)
+
+    img_save_path = os.path.join(this_out_path, frame_name[:-4] + extension)
+    cv2.imwrite(img_save_path, cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR))

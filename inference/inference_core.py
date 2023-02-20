@@ -48,8 +48,7 @@ class InferenceCore:
                                                                          need_sk=True)
 
         return key, shrinkage, selection
-
-    def step(self, image, mask=None, valid_labels=None, end=False, manually_curated_masks=False, disable_memory_updates=False, do_not_add_mask_to_memory=False, holistic_features=None):
+    def step(self, image, mask=None, valid_labels=None, end=False, manually_curated_masks=False, disable_memory_updates=False, do_not_add_mask_to_memory=False):
         # For feedback:
         #   1. We run the model as usual
         #   2. We get feedback: 2 lists, one with good prediction indices, one with bad
@@ -71,8 +70,7 @@ class InferenceCore:
         # to avoid adding permanent memory frames twice, since they are alredy in the memory
         is_ignore = do_not_add_mask_to_memory
 
-        need_segment = (self.curr_ti > 0) and (
-            (valid_labels is None) or (len(self.all_labels) != len(valid_labels)))
+        need_segment = (valid_labels is None) or (len(self.all_labels) != len(valid_labels))
         is_deep_update = (
             (self.deep_update_sync and is_mem_frame) or  # synchronized
             (not self.deep_update_sync and self.curr_ti - \
@@ -163,5 +161,8 @@ class InferenceCore:
         value, hidden = self.network.encode_value(image, key_features.f16, self.memory.get_hidden(),
                                                   pred_prob_with_bg[1:].unsqueeze(0), is_deep_update=False)
 
-        self.memory.add_memory(key, shrinkage, value, self.all_labels,
-                               selection=selection if self.enable_long_term else None, permanent=True)
+        if not self.enable_long_term:
+            for scale in value.scales:
+                key_features.features_by_scale[scale].selection = None 
+
+        self.memory.add_memory(key_features, value, self.all_labels, permanent=True)

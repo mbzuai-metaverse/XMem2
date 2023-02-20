@@ -86,7 +86,10 @@ class InferenceCore:
         key_features = self.network.encode_key(image, need_ek=(
             self.enable_long_term or need_segment), need_sk=is_mem_frame)
 
-        multi_scale_features = (key_features.f16, key_features.f8, key_features.f4)
+        f16 = key_features.features_by_scale[16].feature
+        f8 = key_features.features_by_scale[8].feature
+        f4 = key_features.features_by_scale[4].feature
+        multi_scale_features = (f16, f8, f4)
 
         if disable_memory_updates:
             is_normal_update = False
@@ -96,9 +99,11 @@ class InferenceCore:
 
         # segment the current frame is needed
         if need_segment:
-            memory_readouts = self.memory.match_memory(key_features, disable_usage_updates=disable_memory_updates).unsqueeze(0)
+            memory_readouts = self.memory.match_memory(key_features, disable_usage_updates=disable_memory_updates)
+            memory_readouts = [r.unsqueeze(0) for r in memory_readouts]
+            
             hidden, _, pred_prob_with_bg = self.network.segment(multi_scale_features, memory_readouts,
-                                                                self.memory.get_hidden(), h_out=is_normal_update, holistic_features=holistic_features, strip_bg=False)
+                                                                self.memory.get_hidden(), h_out=is_normal_update, strip_bg=False)
             # remove batch dim
             pred_prob_with_bg = pred_prob_with_bg[0]
             pred_prob_no_bg = pred_prob_with_bg[1:]
@@ -129,6 +134,7 @@ class InferenceCore:
 
             # also create new hidden states
             if not disable_memory_updates:
+                key = key_features.features_by_scale[16].key
                 self.memory.create_hidden_state(len(self.all_labels), key)
 
         # save as memory if needed
@@ -140,7 +146,7 @@ class InferenceCore:
             self.last_mem_ti = self.curr_ti
 
             if is_deep_update:
-                self.memory.set_hidden(hidden)
+                self.memory.set_hidden(multiscale_values.hidden)
                 self.last_deep_update_ti = self.curr_ti
 
         return unpad(pred_prob_with_bg, self.pad)
@@ -155,14 +161,20 @@ class InferenceCore:
         mask, _ = pad_divide_by(mask, 16)
 
         pred_prob_with_bg = aggregate(mask, dim=0)
-        self.memory.create_hidden_state(
-            len(self.all_labels), key_features.key_f16)
 
-        value, hidden = self.network.encode_value(image, key_features.f16, self.memory.get_hidden(),
+        key_f16 = key_features.features_by_scale[16].key
+        f16 = key_features.features_by_scale[16].feature
+        f8 = key_features.features_by_scale[8].feature
+        f4 = key_features.features_by_scale[4].feature
+
+        self.memory.create_hidden_state(
+            len(self.all_labels), key_f16)
+
+        values = self.network.encode_value(image, (f16, f8, f4), self.memory.get_hidden(),
                                                   pred_prob_with_bg[1:].unsqueeze(0), is_deep_update=False)
 
         if not self.enable_long_term:
-            for scale in value.scales:
+            for scale in key_features.scales:
                 key_features.features_by_scale[scale].selection = None 
 
-        self.memory.add_memory(key_features, value, self.all_labels, permanent=True)
+        self.memory.add_memory(key_features, values, self.all_labels, permanent=True)

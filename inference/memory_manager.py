@@ -96,7 +96,7 @@ class MemoryManager:
             permanent_work_mem = mem_unit.permanent_work_mem
             long_mem = mem_unit.long_mem
 
-            num_groups = temporary_work_mem.num_groupss
+            num_groups = temporary_work_mem.num_groups
             h, w = query_key.shape[-2:]
             temp_work_mem_size = temporary_work_mem.size
 
@@ -230,20 +230,20 @@ class MemoryManager:
         mem_units = self.get_memories()
 
         for features, value, mem_unit in zip(multiscale_features.get_all_scales(), multiscale_values.get_all_scales(), mem_units):
-            if mem_unit.H is None or self.reset_config:
-                self.reset_config = False
-                mem_unit.H, mem_unit.W = key.shape[-2:]
-                mem_unit.HW = mem_unit.H*mem_unit.W
-                if mem_unit.enable_long_term:
-                    # convert from num. frames to num. nodes
-                    mem_unit.min_work_elements = mem_unit.min_mt_frames*mem_unit.HW
-                    mem_unit.max_work_elements = mem_unit.max_mt_frames*mem_unit.HW
-
             # key:   1*C*N
             # value: num_objects*C*N
             key = features.key
             shrinkage = features.shrinkage
             selection = features.selection
+            
+            if mem_unit.H is None or self.reset_config:
+                self.reset_config = False
+                mem_unit.H, mem_unit.W = key.shape[-2:]
+                mem_unit.HW = mem_unit.H*mem_unit.W
+                if self.enable_long_term:
+                    # convert from num. frames to num. nodes
+                    mem_unit.min_work_elements = self.min_mt_frames*mem_unit.HW
+                    mem_unit.max_work_elements = self.max_mt_frames*mem_unit.HW
 
             key = key.flatten(start_dim=2)
             shrinkage = shrinkage.flatten(start_dim=2)
@@ -253,7 +253,7 @@ class MemoryManager:
             mem_unit.CV = value.shape[1]
 
             if selection is not None:
-                if not mem_unit.enable_long_term:
+                if not self.enable_long_term:
                     warnings.warn(
                         'the selection factor is only needed in long-term mode', UserWarning)
                     selection = None
@@ -283,7 +283,7 @@ class MemoryManager:
                     key0, value0, shrinkage0, selection0, objects)
 
             # long-term memory cleanup
-            if mem_unit.enable_long_term:
+            if self.enable_long_term:
                 # Do memory compressed if needed
                 if mem_unit.temporary_work_mem.size >= mem_unit.max_work_elements:
                     # if we have more then N elements in the work memory

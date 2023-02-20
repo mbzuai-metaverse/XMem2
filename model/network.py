@@ -227,8 +227,8 @@ class XMem(nn.Module):
             self.key_dim_f4 = model_weights['key_proj_f4.key_proj.weight'].shape[0]
 
             self.value_dim_f16 = model_weights['value_encoder_f16.fuser.block2.conv2.weight'].shape[0]
-            self.value_dim_f16 = model_weights['value_encoder_f8.fuser.block2.conv2.weight'].shape[0]
-            self.value_dim_f16 = model_weights['value_encoder_f4.fuser.block2.conv2.weight'].shape[0]
+            self.value_dim_f8 = model_weights['value_encoder_f8.fuser.block2.conv2.weight'].shape[0]
+            self.value_dim_f4 = model_weights['value_encoder_f4.fuser.block2.conv2.weight'].shape[0]
 
             self.disable_hidden = 'decoder.hidden_update.transform.weight' not in model_weights
             if self.disable_hidden:

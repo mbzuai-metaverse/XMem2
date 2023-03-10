@@ -5,6 +5,9 @@ import collections
 
 import cv2
 from PIL import Image
+import torch
+from torchvision.transforms import Resize, InterpolationMode
+
 if not hasattr(Image, 'Resampling'):  # Pillow<9.0
     Image.Resampling = Image
 import numpy as np
@@ -100,6 +103,11 @@ class ResourceManager:
         self.height, self.width = self.get_image(0).shape[:2]
         self.visualization_init = False
 
+        self._resize = None
+        self._small_masks = None
+        self._keys = None
+        self._keys_processed = np.zeros(self.length, dtype=bool)
+
     def _extract_frames(self, video):
         cap = cv2.VideoCapture(video)
         frame_index = 0
@@ -137,6 +145,24 @@ class ResourceManager:
                     frame = cv2.resize(frame,dsize=(new_w,new_h),interpolation=cv2.INTER_AREA)
                 cv2.imwrite(path.join(self.image_dir, image_name), frame)
         print('Done!')
+
+    def add_key_with_mask(self, ti, key, mask):
+        if self._keys is None:
+            c, h, w = key.squeeze().shape
+            c_mask = mask.shape[0]
+            self._keys = torch.empty((self.length, c, h, w), dtype=key.dtype, device=key.device)
+            self._small_masks = torch.empty((self.length, c_mask, h, w), dtype=mask.dtype, device=key.device)
+            self._resize = Resize((h, w), interpolation=InterpolationMode.NEAREST)
+        
+        if not self._keys_processed[ti]:
+            # keys don't change for the video, so we only save them once
+            self._keys[ti] = key
+            self._keys_processed[ti] = True
+                
+        self._small_masks[ti] = self._resize(mask)
+
+    def all_masks_present(self):
+        return self._keys_processed.sum() == self.length
 
     def save_mask(self, ti, mask):
         # mask should be uint8 H*W without channels
@@ -204,3 +230,12 @@ class ResourceManager:
     @property
     def w(self):
         return self.width
+    
+    @property
+    def small_masks(self):
+        return self._small_masks
+
+    @property
+    def keys(self):
+        return self._keys
+        

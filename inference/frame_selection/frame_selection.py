@@ -1,50 +1,17 @@
-from functools import partial
-import json
+from copy import copy
 from pathlib import Path
+import time
 from typing import Any, Dict, List, Set, Tuple, Union
 
+import cv2
 import torch
+import torch.nn.functional as F
 import torchvision.transforms.functional as FT
 import numpy as np
-from sklearn.decomposition import PCA
-from scipy.spatial.distance import cdist
-from umap import UMAP
-from hdbscan import flat
 from tqdm import tqdm
+from inference.frame_selection.frame_selection_utils import extract_keys
 
 from model.memory_util import get_similarity
-
-
-# -----------------------------CHOSEN FRAME SELECTORS---------------------------------------
-
-# Utility
-def _extract_keys(dataloder, processor, print_progress=False):
-    frame_keys = []
-    shrinkages = []
-    selections = []
-    device = None
-    with torch.no_grad():  # just in case
-        key_sum = None
-
-        for ti, data in enumerate(tqdm(dataloder, disable=not print_progress, desc='Calculating key features')):
-            rgb = data['rgb'].cuda()[0]
-            key, shrinkage, selection = processor.encode_frame_key(rgb)
-
-            if key_sum is None:
-                device = key.device
-                # to avoid possible overflow
-                key_sum = torch.zeros_like(
-                    key, device=device, dtype=torch.float64)
-
-            key_sum += key.type(torch.float64)
-
-            frame_keys.append(key.flatten(start_dim=2).cpu())
-            shrinkages.append(shrinkage.flatten(start_dim=2).cpu())
-            selections.append(selection.flatten(start_dim=2).cpu())
-
-        num_frames = ti + 1  # 0 after 1 iteration, 1 after 2, etc.
-
-        return frame_keys, shrinkages, selections, device, num_frames, key_sum
 
 
 def first_frame_only(*args, **kwargs):
@@ -59,71 +26,26 @@ def uniformly_selected_frames(dataloader, *args, how_many_frames=10, **kwargs) -
     return np.linspace(0, num_total_frames - 1, how_many_frames).astype(int).tolist()
 
 
-def calculate_proposals_for_annotations_iterative_pca(dataloader, processor, how_many_frames=10, print_progress=False, distance_metric='euclidean') -> List[int]:
-    assert distance_metric in {'cosine', 'euclidean'}
-    # might not pick 0-th frame
-    np.random.seed(1)  # Just in case
+def calculate_proposals_for_annotations_with_iterative_distance_cycle_MASKS(dataloader, processor, existing_masks_path: str, how_many_frames=10, print_progress=False, mult_instead=False, alpha=1.0, too_small_mask_threshold_px=9, **kwargs) -> List[int]:
     with torch.no_grad():
-        frame_keys, shrinkages, selections, device, num_frames, key_sum = _extract_keys(
-            dataloader, processor, print_progress)
-        flat_keys = torch.stack([key.flatten().cpu()
-                                for key in frame_keys]).numpy()
+        frame_keys, shrinkages, selections, device, num_frames, key_sum = extract_keys(dataloader, processor, print_progress)
+           
+        h, w = frame_keys[0].squeeze().shape[1:3]  # removing batch dimension
+        p_masks_dir = Path(existing_masks_path)
+        mask_sizes_px = []
+        for i, p_img in enumerate(p_masks_dir.iterdir()):
+            img = cv2.imread(str(p_img))
+            img = cv2.resize(img, (w, h)) / 255.
+            img_tensor = FT.to_tensor(img)
+            mask_size_px = (img_tensor > 0).sum()
+            mask_sizes_px.append(mask_size_px)
 
-        # PCA hangs at num_frames // 2: https://github.com/scikit-learn/scikit-learn/issues/22434
-        pca = PCA(num_frames - 1, svd_solver='arpack')
-        smol_keys = pca.fit_transform(flat_keys.astype(np.float64))
-        # smol_keys = flat_keys  # to disable PCA
-
-        chosen_frames = [0]
-        for c in range(how_many_frames - 1):
-            distances = cdist(smol_keys[chosen_frames],
-                              smol_keys, metric=distance_metric)
-            closest_to_mem_key_distances = distances.min(axis=0)
-            most_distant_frame = np.argmax(closest_to_mem_key_distances)
-            chosen_frames.append(int(most_distant_frame))
-
-        return chosen_frames
-
-
-def calculate_proposals_for_annotations_umap_half_hdbscan_clustering(dataloader, processor, how_many_frames=10, print_progress=False) -> List[int]:
-    # might not pick 0-th frame
-    with torch.no_grad():
-        frame_keys, shrinkages, selections, device, num_frames, key_sum = _extract_keys(
-            dataloader, processor, print_progress)
-        flat_keys = torch.stack([key.flatten().cpu()
-                                for key in frame_keys]).numpy()
-
-        pca = UMAP(n_neighbors=num_frames - 1,
-                   n_components=num_frames // 2, random_state=1)
-        smol_keys = pca.fit_transform(flat_keys)
-
-        # clustering = AgglomerativeClustering(n_clusters=how_many_frames + 1, linkage='single')
-        clustering = flat.HDBSCAN_flat(
-            smol_keys, n_clusters=how_many_frames + 1)
-        labels = clustering.labels_
-
-        chosen_frames = []
-        for c in range(how_many_frames):
-            vectors = smol_keys[labels == c]
-            true_index_mapping = {i: int(ti) for i, ti in zip(
-                range(len(vectors)), np.nonzero(labels == c)[0])}
-            center = np.mean(vectors, axis=0)
-
-            # since HDBSCAN is density-based, it makes 0 sense to use anything but euclidean distance here
-            distances = cdist(vectors, [center], metric='euclidean').squeeze()
-
-            closest_to_cluster_center_idx = np.argsort(distances)[0]
-
-            chosen_frame_idx = true_index_mapping[closest_to_cluster_center_idx]
-            chosen_frames.append(chosen_frame_idx)
-
-        return chosen_frames
-
-
-def calculate_proposals_for_annotations_with_iterative_distance_cycle(dataloader, processor, how_many_frames=10, print_progress=False) -> List[int]:
-    with torch.no_grad():
-        frame_keys, shrinkages, selections, device, num_frames, key_sum = _extract_keys(
-            dataloader, processor, print_progress)
+            if not mult_instead:
+                composite_key = torch.cat([frame_keys[i].cpu().squeeze(), img_tensor], dim=0)  # along channels
+            else:
+                composite_key = frame_keys[i].cpu().squeeze() * img_tensor.max(dim=0, keepdim=True).values # all objects -> 1., background -> 0.. Keep 1 channel only
+                composite_key = composite_key * alpha + frame_keys[i].cpu().squeeze() * (1 - alpha)
+            frame_keys[i] = composite_key
 
         chosen_frames = [0]
         chosen_frames_mem_keys = [frame_keys[0].to(device)]
@@ -133,33 +55,32 @@ def calculate_proposals_for_annotations_with_iterative_distance_cycle(dataloader
             # how to run a loop for lower memory usage
             for j in tqdm(range(num_frames), desc='Computing similarity to chosen frames', disable=not print_progress):
                 qk = frame_keys[j].to(device)
-                query_selection = selections[j].to(device)  # query
-                query_shrinkage = shrinkages[j].to(device)
 
-                dissimilarities_across_mem_keys = []
-                for key_idx, mem_key in zip(chosen_frames, chosen_frames_mem_keys):
-                    mem_key = mem_key.to(device)
-                    key_shrinkage = shrinkages[key_idx].to(device)
-                    key_selection = selections[key_idx].to(device)
+                if mask_sizes_px[j] < too_small_mask_threshold_px:
+                    dissimilarity_min_across_all = 0
+                else:
+                    dissimilarities_across_mem_keys = []
+                    for mem_key in chosen_frames_mem_keys:
+                        mem_key = mem_key.to(device)
 
-                    similarity_per_pixel = get_similarity(
-                        mem_key, ms=None, qk=qk, qe=None)
-                    reverse_similarity_per_pixel = get_similarity(
-                        qk, ms=None, qk=mem_key, qe=None)
+                        similarity_per_pixel = get_similarity(
+                            mem_key, ms=None, qk=qk, qe=None)
+                        reverse_similarity_per_pixel = get_similarity(
+                            qk, ms=None, qk=mem_key, qe=None)
 
-                    # mapping of pixels A -> B would be very similar to B -> A if the images are similar
-                    # and very different if the images are different
-                    cycle_dissimilarity_per_pixel = (
-                        similarity_per_pixel - reverse_similarity_per_pixel)
-                    cycle_dissimilarity_score = cycle_dissimilarity_per_pixel.abs().sum() / \
-                        cycle_dissimilarity_per_pixel.numel()
+                        # mapping of pixels A -> B would be very similar to B -> A if the images are similar
+                        # and very different if the images are different
+                        cycle_dissimilarity_per_pixel = (
+                            similarity_per_pixel - reverse_similarity_per_pixel)
+                        
+                        cycle_dissimilarity_score = F.relu(cycle_dissimilarity_per_pixel).sum() / \
+                            cycle_dissimilarity_per_pixel.numel()
+                        dissimilarities_across_mem_keys.append(
+                            cycle_dissimilarity_score)
 
-                    dissimilarities_across_mem_keys.append(
-                        cycle_dissimilarity_score)
-
-                # filtering our existing or very similar frames
-                dissimilarity_min_across_all = min(
-                    dissimilarities_across_mem_keys)
+                    # filtering our existing or very similar frames
+                    dissimilarity_min_across_all = min(dissimilarities_across_mem_keys)
+                    
                 dissimilarities.append(dissimilarity_min_across_all)
 
             values, indices = torch.topk(torch.tensor(
@@ -175,73 +96,109 @@ def calculate_proposals_for_annotations_with_iterative_distance_cycle(dataloader
         return chosen_frames
 
 
-def calculate_proposals_for_annotations_with_iterative_distance_double_diff(dataloader, processor, how_many_frames=10, print_progress=False) -> List[int]:
+def select_next_candidates(keys: torch.Tensor, masks: List[torch.tensor], num_next_candidates: int, previously_chosen_candidates: List[int] = (0,), print_progress=False, alpha=1.0, min_mask_presence_px=9, device: torch.device = 'cuda:0', progress_callback=None):
+    assert len(keys) == len(masks)
+    assert len(keys) > 0
+    assert keys[0].shape[-2:] == masks[0].shape[-2:]
+    assert num_next_candidates > 0
+    assert len(previously_chosen_candidates) > 0
+    assert 0.0 <= alpha <= 1.0
+    assert min_mask_presence_px >= 0
+    assert len(previously_chosen_candidates) < len(keys)
+
+    """
+    Select candidate frames for annotation based on dissimilarity and cycle consistency.
+
+    Parameters
+    ----------
+    `keys` : `List[torch.Tensor]`
+        A list of "key" feature maps for all frames of the video.
+    `masks` : `List[torch.Tensor]`
+        A list of masks for each frame (predicted or user-provided).
+    `num_next_candidates` : `int`
+        The number of candidate frames to select.
+    `previously_chosen_candidates` : `List[int]`, optional
+        A list of previously chosen candidates. Default is (0,).
+    `print_progress` : `bool`, optional
+        Whether to print progress information. Default is False.
+    `alpha` : `float`, optional
+        The weight for cycle consistency in the candidate selection process. Default is 1.0.
+    `min_mask_presence_px` : `int`, optional
+        The minimum number of pixels for a valid mask. Default is 9.
+
+    Returns
+    -------
+    `List[int]`
+        A list of indices of the selected candidate frames.
+
+    Notes
+    -----
+    This function uses a dissimilarity measure and cycle consistency to select candidate frames for the user to annotate.
+    The dissimilarity measure ensures that the selected frames are as diverse as possible, while the cycle consistency
+    ensures that the dissimilarity D(A->A)=0, while D(A->B)>0, and is larger the more different A and B are (pixel-wise).
+
+    """
     with torch.no_grad():
-        frame_keys, shrinkages, selections, device, num_frames, key_sum = _extract_keys(
-            dataloader, processor, print_progress)
+        composite_keys = []
+        keys = keys.squeeze()
+        N = len(keys)
+        h, w = keys[0].shape[1:3]  # removing batch dimension
+        masks_validity = np.full(N, True)
 
-        chosen_frames = [0]
-        chosen_frames_mem_keys = [frame_keys[0]]
-        # chosen_frames_self_similarities = []
-        for c in range(how_many_frames - 1):
-            dissimilarities = []
-            # how to run a loop for lower memory usage
-            for i in tqdm(range(num_frames), desc=f'Computing similarity to chosen frames', disable=not print_progress):
-                true_frame_idx = i
-                qk = frame_keys[true_frame_idx].to(device)
-                query_selection = selections[true_frame_idx].to(
-                    device)  # query
-                query_shrinkage = shrinkages[true_frame_idx].to(device)
+        for i, mask in enumerate(masks):
+            mask_size_px = (mask > 0).sum()
 
-                dissimilarities_across_mem_keys = []
-                for key_idx, mem_key in zip(chosen_frames, chosen_frames_mem_keys):
-                    mem_key = mem_key.to(device)
-                    key_shrinkage = shrinkages[key_idx].to(device)
-                    key_selection = selections[key_idx].to(device)
+            if mask_size_px < min_mask_presence_px:
+                masks_validity[i] = False
+                composite_keys.append(None)
 
-                    similarity_per_pixel = get_similarity(
-                        mem_key, ms=key_shrinkage, qk=qk, qe=query_selection)
-                    self_similarity_key = get_similarity(
-                        mem_key, ms=key_shrinkage, qk=mem_key, qe=key_selection)
-                    self_similarity_query = get_similarity(
-                        qk, ms=query_shrinkage, qk=qk, qe=query_selection)
+            composite_key = keys[i] * mask.max(dim=0, keepdim=True).values # any object -> 1., background -> 0.. Keep 1 channel only
+            composite_key = composite_key * alpha + keys[i] * (1 - alpha)
 
-                    # mapping of pixels A -> B would be very similar to B -> A if the images are similar
-                    # and very different if the images are different
+            composite_keys.append(composite_key.to(device))
+        
+        chosen_candidates = list(previously_chosen_candidates)
+        chosen_candidate_keys = [composite_keys[i] for i in chosen_candidates]
 
-                    pure_similarity = 2 * similarity_per_pixel - \
-                        self_similarity_key - self_similarity_query
+        for i in tqdm(range(num_next_candidates), desc='Iteratively picking the most dissimilar frames', disable=not print_progress):
+            candidate_dissimilarities = []
+            for j in tqdm(range(N), desc='Computing similarity to chosen frames', disable=not print_progress):
+                qk = composite_keys[j].to(device)
 
-                    dissimilarity_score = pure_similarity.abs().sum() / pure_similarity.numel()
+                if not masks_validity[j]:
+                    # ignore this potential candidate
+                    dissimilarity_min_across_all = 0
+                else:
+                    dissimilarities_across_mem_keys = []
+                    for mem_key in chosen_candidate_keys:
+                        mem_key = mem_key
 
-                    dissimilarities_across_mem_keys.append(dissimilarity_score)
+                        similarity_per_pixel =         get_similarity(mem_key, ms=None, qk=qk,      qe=None)
+                        reverse_similarity_per_pixel = get_similarity(qk,      ms=None, qk=mem_key, qe=None)
 
-                # filtering our existing or very similar frames
-                dissimilarity_min_across_all = min(
-                    dissimilarities_across_mem_keys)
-                dissimilarities.append(dissimilarity_min_across_all)
+                        # mapping of pixels A -> B would be very similar to B -> A if the images are similar
+                        # and very different if the images are different
+                        cycle_dissimilarity_per_pixel = (similarity_per_pixel - reverse_similarity_per_pixel)
+                        
+                        # Take non-negative mappings, normalize by tensor size
+                        cycle_dissimilarity_score = F.relu(cycle_dissimilarity_per_pixel).sum() / cycle_dissimilarity_per_pixel.numel()
 
-            values, indices = torch.topk(torch.tensor(
-                dissimilarities), k=1, largest=True)
-            chosen_new_frame = int(indices[0])
+                        dissimilarities_across_mem_keys.append(cycle_dissimilarity_score)
 
-            chosen_frames.append(chosen_new_frame)
-            chosen_frames_mem_keys.append(
-                frame_keys[chosen_new_frame].to(device))
+                    # filtering our existing or very similar frames
+                    # if the key has already been used or is very similar to at least one of the chosen candidates
+                    # dissimilarity_min_across_all -> 0 (or close to)
+                    dissimilarity_min_across_all = min(dissimilarities_across_mem_keys)
+                    
+                candidate_dissimilarities.append(dissimilarity_min_across_all)
 
-        # we don't need to worry about 1st frame with itself, since we take the LEAST similar frames
-        return chosen_frames
+            index = torch.argmax(torch.tensor(candidate_dissimilarities))
+            chosen_new_frame = int(index)
 
+            chosen_candidates.append(chosen_new_frame)
+            chosen_candidate_keys.append(composite_keys[chosen_new_frame])
 
-KNOWN_ANNOTATION_PREDICTORS = {
-    'PCA_EUCLIDEAN': partial(calculate_proposals_for_annotations_iterative_pca, distance_metric='euclidean'),
-    'PCA_COSINE': partial(calculate_proposals_for_annotations_iterative_pca, distance_metric='cosine'),
-    'UMAP_EUCLIDEAN': calculate_proposals_for_annotations_umap_half_hdbscan_clustering,
-    'INTERNAL_CYCLE_CONSISTENCY': calculate_proposals_for_annotations_with_iterative_distance_cycle,
-    'INTERNAL_DOUBLE_DIFF': calculate_proposals_for_annotations_with_iterative_distance_double_diff,
+            if progress_callback is not None:
+                progress_callback.emit(i + 1)
 
-    'FIRST_FRAME_ONLY': first_frame_only, # ignores the number of candidates, baseline
-    'UNIFORM': uniformly_selected_frames  # baseline
-}
-
-# ------------------------END CHOSEN-----------------------------------------------
+        return chosen_candidates

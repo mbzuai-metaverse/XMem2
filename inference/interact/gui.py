@@ -16,6 +16,8 @@ import functools
 
 import os
 import cv2
+
+from inference.frame_selection.frame_selection import select_next_candidates
 # fix conflicts between qt5 and cv2
 os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH")
 
@@ -24,10 +26,10 @@ import torch
 
 from PyQt5.QtWidgets import (QWidget, QApplication, QComboBox, QCheckBox,
     QHBoxLayout, QLabel, QPushButton, QTextEdit, QSpinBox, QFileDialog,
-    QPlainTextEdit, QVBoxLayout, QSizePolicy, QButtonGroup, QSlider, QShortcut, QRadioButton)
+    QPlainTextEdit, QVBoxLayout, QSizePolicy, QButtonGroup, QSlider, QShortcut, QRadioButton, QTabWidget, QDialog)
 
 from PyQt5.QtGui import QPixmap, QKeySequence, QImage, QTextCursor, QIcon
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QThreadPool
 
 from model.network import XMem
 
@@ -56,6 +58,7 @@ class App(QWidget):
         self.processor = InferenceCore(net, config)
         self.processor.set_all_labels(list(range(1, self.num_objects+1)))
         self.res_man = resource_manager
+        self.threadpool = QThreadPool()
 
         self.num_frames = len(self.res_man)
         self.height, self.width = self.res_man.h, self.res_man.w
@@ -70,6 +73,10 @@ class App(QWidget):
         self.play_button.clicked.connect(self.on_play_video)
         self.commit_button = QPushButton('Commit')
         self.commit_button.clicked.connect(self.on_commit)
+        self.save_reference_button = QPushButton('Save reference')
+        self.save_reference_button.clicked.connect(self.on_save_reference)
+        self.compute_candidates_button = QPushButton('Compute Annotation candidates')
+        self.compute_candidates_button.clicked.connect(self.on_compute_candidates)
 
         self.forward_run_button = QPushButton('Forward Propagate')
         self.forward_run_button.clicked.connect(self.on_forward_propagation)
@@ -233,6 +240,13 @@ class App(QWidget):
         navi.addWidget(QLabel('Save overlay during propagation'))
         navi.addWidget(self.save_visualization_checkbox)
         navi.addStretch(1)
+        
+        self.test_btn = QPushButton('TEST')
+        self.test_btn.clicked.connect(self.TEST)
+        
+        navi.addWidget(self.test_btn)
+        navi.addWidget(self.save_reference_button)
+        navi.addWidget(self.compute_candidates_button)
         navi.addWidget(self.commit_button)
         navi.addWidget(self.forward_run_button)
         navi.addWidget(self.backward_run_button)
@@ -241,8 +255,17 @@ class App(QWidget):
         draw_area = QHBoxLayout()
         draw_area.addWidget(self.main_canvas, 4)
 
+        self.tabs = QTabWidget()
+        self.map_tab = QWidget()
+        self.references_tab = QWidget()
+
+        self.tabs.addTab(self.map_tab,"Minimap && Stats")
+        self.tabs.addTab(self.references_tab,"References && Candidates")
+
+        tabs_layout = QVBoxLayout()
+
         # Minimap area
-        minimap_area = QVBoxLayout()
+        minimap_area = QVBoxLayout(self.map_tab)
         minimap_area.setAlignment(Qt.AlignTop)
         mini_label = QLabel('Minimap')
         mini_label.setAlignment(Qt.AlignTop)
@@ -275,10 +298,12 @@ class App(QWidget):
         import_area.addWidget(self.import_layer_button)
         minimap_area.addLayout(import_area)
 
-        # console
-        minimap_area.addWidget(self.console)
+        chosen_figures_area = QVBoxLayout(self.references_tab)
+        chosen_figures_area.addWidget(QLabel("TEST TEST FIGURES"))
 
-        draw_area.addLayout(minimap_area, 1)
+        tabs_layout.addWidget(self.tabs)
+        tabs_layout.addWidget(self.console)
+        draw_area.addLayout(tabs_layout, 1)
 
         layout = QVBoxLayout()
         layout.addLayout(draw_area)
@@ -312,6 +337,8 @@ class App(QWidget):
         self.brush_vis_alpha = np.zeros((self.height, self.width, 1), dtype=np.float32)
         self.cursur = 0
         self.on_showing = None
+        self.reference_ids = []
+        self.candidates_ids = []
 
         # Zoom parameters
         self.zoom_pixels = 150
@@ -348,6 +375,10 @@ class App(QWidget):
 
         self.console_push_text('Initialized.')
         self.initialized = True
+
+    def TEST(self):
+        print(self.res_man.all_masks_present())
+        pass
 
     def resizeEvent(self, event):
         self.show_current_frame()
@@ -458,6 +489,10 @@ class App(QWidget):
 
         self.lcd.setText('{: 3d} / {: 3d}'.format(self.cursur, self.num_frames-1))
         self.tl_slider.setValue(self.cursur)
+
+    def show_candidates(self):
+        # TODO: draw image grid
+        pass
 
     def pixel_pos_to_image_pos(self, x, y):
         # Un-scale and un-pad the label coordinates into image coordinates
@@ -573,10 +608,13 @@ class App(QWidget):
     def on_propagation(self):
         # start to propagate
         self.load_current_torch_image_mask()
+        # TODO: put into permanent memory
         self.show_current_frame(fast=True)
 
         self.console_push_text('Propagation started.')
-        self.current_prob = self.processor.step(self.current_image_torch, self.current_prob[1:])
+        self.current_prob, key = self.processor.step(self.current_image_torch, self.current_prob[1:], return_key=True)
+        self.res_man.add_key_with_mask(self.cursur, key, self.current_prob)
+        
         self.current_mask = torch_prob_to_numpy_mask(self.current_prob)
         # clear
         self.interacted_prob = None
@@ -591,7 +629,10 @@ class App(QWidget):
             self.load_current_image_mask(no_mask=True)
             self.load_current_torch_image_mask(no_mask=True)
 
-            self.current_prob = self.processor.step(self.current_image_torch)
+            # TODO: read existing mask (if there is one), pass to .step()
+            self.current_prob, key = self.processor.step(self.current_image_torch, return_key=True)
+            self.res_man.add_key_with_mask(self.cursur, key, self.current_prob)
+
             self.current_mask = torch_prob_to_numpy_mask(self.current_prob)
 
             self.save_current_mask()
@@ -602,7 +643,8 @@ class App(QWidget):
 
             if self.cursur == 0 or self.cursur == self.num_frames-1:
                 break
-
+        
+        # TODO: after finished, compute candidates and show maybe? 
         self.propagating = False
         self.curr_frame_dirty = False
         self.on_pause()
@@ -615,6 +657,41 @@ class App(QWidget):
     def on_commit(self):
         self.complete_interaction()
         self.update_interacted_mask()
+
+    def on_compute_candidates(self):
+        def _update_candidates(candidates_ids):
+            print(candidates_ids)
+            self.candidates_ids = candidates_ids
+
+        def _update_progress(i):
+            candidate_progress.setValue(i)
+
+        k = 5
+        # self.candidate_progress.setMaximum(k)
+        # self.candidate_progress.exec_()
+ # Candidate progress dialog
+
+        # time.sleep(5)
+        # my_dialog.close()
+        candidate_progress = QProgressDialog("Selecting candidates", None, 0, k, self, Qt.WindowFlags(Qt.WindowType.Dialog | ~Qt.WindowCloseButtonHint))
+        worker = Worker(select_next_candidates, self.res_man.keys, self.res_man.small_masks, k, self.reference_ids, print_progress=False, alpha=0.5, min_mask_presence_px=9) # Any other args, kwargs are passed to the run function
+        worker.signals.result.connect(_update_candidates)
+        worker.signals.progress.connect(_update_progress)
+
+        self.threadpool.start(worker)
+
+        candidate_progress.open()
+
+    def on_save_reference(self):
+        # TODO: update permanent memory. Add if new, replace if already existed
+        current_image_torch, _ = image_to_torch(self.current_image)
+        current_prob = index_numpy_to_one_hot_torch(self.current_mask, self.num_objects+1).cuda()
+
+        self.processor.put_to_permanent_memory(current_image_torch, current_prob, self.cursur)
+
+        self.reference_ids.append(self.cursur)
+        
+        # TODO: remove from candidates if was there
 
     def on_prev_frame(self):
         # self.tl_slide will trigger on setValue

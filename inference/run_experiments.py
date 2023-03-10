@@ -13,7 +13,7 @@ from PIL import Image
 from util.metrics import batched_f_measure, batched_jaccard
 from p_tqdm import p_umap
 
-from inference.frame_selection.frame_selection import KNOWN_ANNOTATION_PREDICTORS
+# from inference.frame_selection.frame_selection import KNOWN_ANNOTATION_PREDICTORS
 from inference.run_on_video import predict_annotation_candidates, run_on_video
 
 # ---------------BEGIN Inference and visualization utils --------------------------
@@ -137,7 +137,7 @@ def get_videos_info():
     }
 
 
-def run_multiple_frame_selectors(videos_info: Dict[str, Dict], csv_output_path: str, predictors: Dict[str, callable] = KNOWN_ANNOTATION_PREDICTORS, load_existing_masks=False):
+def run_multiple_frame_selectors(videos_info: Dict[str, Dict], csv_output_path: str, predictors: Dict[str, callable] = None, load_existing_masks=False):
     output = pd.DataFrame(columns=list(predictors))
     p_bar = tqdm(total=len(videos_info) * len(predictors))
 

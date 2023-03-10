@@ -32,6 +32,7 @@ class MemoryManager:
 
         self.temporary_work_mem = KeyValueMemoryStore(count_usage=self.enable_long_term)
         self.permanent_work_mem = KeyValueMemoryStore(count_usage=False)
+        self.frame_id_to_mem_idx = dict()
         if self.enable_long_term:
             self.long_mem = KeyValueMemoryStore(count_usage=self.enable_long_term_usage)
 
@@ -229,7 +230,7 @@ class MemoryManager:
 
         if not self.temporary_work_mem.engaged() or (num_temp_groups != num_perm_groups):
             # print(f"PERM_NUM_GROUPS={num_perm_groups} vs TEMP_NUM_GROUPS={num_temp_groups}", end=' ')
-            
+
             # first frame or new group; we need to have both memories engaged to avoid crashes when concating
             # so we just initialize the temporary one with an empty tensor
             key0 = key[..., 0:0]
@@ -275,6 +276,9 @@ class MemoryManager:
 
     def get_hidden(self):
         return self.hidden
+    
+    def frame_already_saved(self, ti):
+        return ti in self.frame_id_to_mem_idx
 
     # def slices_excluding_permanent(self, group_value, start, end):
     #     HW = self.HW

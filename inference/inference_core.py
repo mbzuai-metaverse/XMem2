@@ -48,7 +48,7 @@ class InferenceCore:
                                                                          need_sk=True)
 
         return key, shrinkage, selection
-    def step(self, image, mask=None, valid_labels=None, end=False, manually_curated_masks=False, disable_memory_updates=False, do_not_add_mask_to_memory=False):
+    def step(self, image, mask=None, valid_labels=None, end=False, manually_curated_masks=False, disable_memory_updates=False, do_not_add_mask_to_memory=False, return_key=False):
         # For feedback:
         #   1. We run the model as usual
         #   2. We get feedback: 2 lists, one with good prediction indices, one with bad
@@ -132,10 +132,15 @@ class InferenceCore:
             if is_deep_update:
                 self.memory.set_hidden(hidden)
                 self.last_deep_update_ti = self.curr_ti
-                
-        return unpad(pred_prob_with_bg, self.pad)
 
-    def put_to_permanent_memory(self, image, mask):
+        res = unpad(pred_prob_with_bg, self.pad)
+
+        if return_key:
+            return res, key
+        else:
+            return res
+
+    def put_to_permanent_memory(self, image, mask, ti=None):
         image, self.pad = pad_divide_by(image, 16)
         image = image.unsqueeze(0) # add the batch dimension
         key, shrinkage, selection, f16, f8, f4 = self.network.encode_key(image, 
@@ -149,6 +154,16 @@ class InferenceCore:
 
         value, hidden = self.network.encode_value(image, f16, self.memory.get_hidden(), 
                                     pred_prob_with_bg[1:].unsqueeze(0), is_deep_update=False)
-                                    
-        self.memory.add_memory(key, shrinkage, value, self.all_labels, 
-                                    selection=selection if self.enable_long_term else None, permanent=True)
+        
+        if self.memory.frame_already_saved(ti):
+            # self.memory.update_permanent_memory(ti, )
+            # maybe delete and update?
+            # TODO: splice the memory, update existing one
+            pass
+        else:                       
+            self.memory.add_memory(key, shrinkage, value, self.all_labels, 
+                                        selection=selection if self.enable_long_term else None, permanent=True)
+            
+    @property
+    def permanent_memory_frames(self):
+        return list(self.memory.frame_id_to_mem_idx.keys())

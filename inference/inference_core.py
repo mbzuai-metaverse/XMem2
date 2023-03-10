@@ -48,6 +48,39 @@ class InferenceCore:
                                                                          need_sk=True)
 
         return key, shrinkage, selection
+                                                                        
+    def encode_frame_value(self, image, hidden_state=None, mask=None):
+        image, self.pad = pad_divide_by(image, 16)
+        image = image.unsqueeze(0)  # add the batch dimension
+
+        key, shrinkage, selection, f16, f8, f4 = self.network.encode_key(image,
+                                                                         need_ek=True,
+                                                                         need_sk=False)
+
+        if hidden_state is None:
+            hidden_state = self.memory.get_hidden()
+
+            if hidden_state is None:
+                self.memory.create_hidden_state(len(self.all_labels), key)
+                hidden_state = self.memory.get_hidden()
+
+        if mask is None:
+            multi_scale_features = (f16, f8, f4)
+            memory_readout = self.memory.match_memory(key, selection, disable_usage_updates=True).unsqueeze(0)
+            hidden_state, _, pred_prob_with_bg = self.network.segment(multi_scale_features, memory_readout, 
+                                    hidden_state, h_out=True, strip_bg=False)
+            # remove batch dim
+            pred_prob_with_bg = pred_prob_with_bg[0]
+            pred_prob_no_bg = pred_prob_with_bg[1:]
+        else:
+            mask, _ = pad_divide_by(mask, 16)
+            pred_prob_with_bg = aggregate(mask, dim=0)
+
+        value, hidden_state = self.network.encode_value(image, f16, hidden_state, 
+                                    pred_prob_with_bg[1:].unsqueeze(0), is_deep_update=True)
+
+        return value, hidden_state
+
     def step(self, image, mask=None, valid_labels=None, end=False, manually_curated_masks=False, disable_memory_updates=False, do_not_add_mask_to_memory=False):
         # For feedback:
         #   1. We run the model as usual

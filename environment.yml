@@ -21,8 +21,10 @@ dependencies:
   - dal=2021.6.0=hdb19cb5_916
   - decorator=5.1.1=pyhd3eb1b0_0
   - executing=0.8.3=pyhd3eb1b0_0
+  - faiss-gpu=1.7.3=py3.9_h28a55e0_0_cuda11.3
   - ffmpeg=4.3=hf484d3e_0
   - fftw=3.3.10=nompi_h77c792f_102
+  - flit-core=3.6.0=pyhd3eb1b0_0
   - freetype=2.11.0=h70c0345_0
   - giflib=5.2.1=h7b6447c_0
   - gmp=6.2.1=h295c915_3
@@ -39,6 +41,7 @@ dependencies:
   - ld_impl_linux-64=2.38=h1181459_1
   - lerc=3.0=h295c915_0
   - libdeflate=1.8=h7f8727e_5
+  - libfaiss=1.7.3=hfc2d529_0_cuda11.3
   - libffi=3.3=he6710b0_2
   - libgcc-ng=11.2.0=h1234567_1
   - libgfortran-ng=12.2.0=h69a702a_19
@@ -67,7 +70,7 @@ dependencies:
   - nettle=3.7.3=hbbd107a_1
   - numba=0.56.4=py39h417a72b_0
   - openh264=2.1.1=h4ff587b_0
-  - openssl=1.1.1s=h7f8727e_0
+  - openssl=1.1.1t=h7f8727e_0
   - parso=0.8.3=pyhd3eb1b0_0
   - pexpect=4.8.0=pyhd3eb1b0_3
   - pickleshare=0.7.5=pyhd3eb1b0_1003
@@ -95,6 +98,7 @@ dependencies:
   - torchaudio=0.12.1=py39_cu113
   - tqdm=4.64.1=pyhd8ed1ab_0
   - traitlets=5.7.1=py39h06a4308_0
+  - typing_extensions=4.3.0=py39h06a4308_0
   - tzdata=2022e=h04d1e81_0
   - umap-learn=0.5.3=py39hf3d152e_0
   - wcwidth=0.2.5=pyhd3eb1b0_0
@@ -110,8 +114,10 @@ dependencies:
       - cachetools==5.3.0
       - charset-normalizer==3.0.1
       - contourpy==1.0.6
+      - cupy-cuda11x==11.5.0
       - cycler==0.11.0
       - cython==0.29.32
+      - fastrlock==0.8.1
       - filelock==3.8.0
       - fonttools==4.38.0
       - gdown==4.5.3
@@ -123,6 +129,7 @@ dependencies:
       - gpustat==1.0.0
       - grpcio==1.51.1
       - h5py==3.7.0
+      - haishoku==1.1.8
       - hickle==5.0.2
       - importlib-metadata==6.0.0
       - kiwisolver==1.4.4
@@ -165,6 +172,7 @@ dependencies:
       - tensorboard==2.11.2
       - tensorboard-data-server==0.6.1
       - tensorboard-plugin-wit==1.8.1
+      - termcolor==2.2.0
       - thin-plate-spline==1.0.1
       - thinplate==1.0.0
       - tomli==2.0.1
@@ -173,8 +181,10 @@ dependencies:
       - torchvision==0.13.1
       - torchviz==0.0.2
       - tornado==6.2
-      - typing-extensions==4.4.0
+      - trash-cli==0.23.2.13.2
+      - typing==3.7.4.3
       - urllib3==1.26.14
       - werkzeug==2.2.2
       - wheel==0.38.4
       - zipp==3.12.0
+prefix: /home/maksym/miniconda3/envs/XMem

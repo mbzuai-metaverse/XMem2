@@ -6,8 +6,12 @@ from typing import Any, Dict, List, Set, Tuple, Union
 import cv2
 import numpy as np
 import pandas as pd
+import torch
 from tqdm import tqdm
 from matplotlib import pyplot as plt
+from PIL import Image
+from util.metrics import batched_f_measure, batched_jaccard
+from p_tqdm import p_umap
 
 from inference.frame_selection.frame_selection import KNOWN_ANNOTATION_PREDICTORS
 from inference.run_on_video import predict_annotation_candidates, run_on_video
@@ -133,52 +137,104 @@ def get_videos_info():
     }
 
 
-def run_multiple_frame_selectors(videos_info: Dict[str, Dict], csv_output_path: str):
-    output = pd.DataFrame(columns=list(KNOWN_ANNOTATION_PREDICTORS))
-    p_bar = tqdm(total=len(videos_info) * len(KNOWN_ANNOTATION_PREDICTORS))
+def run_multiple_frame_selectors(videos_info: Dict[str, Dict], csv_output_path: str, predictors: Dict[str, callable] = KNOWN_ANNOTATION_PREDICTORS, load_existing_masks=False):
+    output = pd.DataFrame(columns=list(predictors))
+    p_bar = tqdm(total=len(videos_info) * len(predictors))
+
+    exceptions = pd.DataFrame(columns=['video', 'method', 'error_message'])
 
     for video_name, info in videos_info.items():
         video_frames_path = info['video_frames_path']
         num_candidate_frames = info['num_annotation_candidates']
+        if load_existing_masks:
+            masks_first_frame_only = Path(info['masks_out_path']) / 'ONLY_ONE_FRAME'
+        else:
+            masks_first_frame_only = None
 
         results = {}
-        for method_name in KNOWN_ANNOTATION_PREDICTORS:
-            chosen_annotation_frames = predict_annotation_candidates(
-                video_frames_path, num_candidates=num_candidate_frames, approach=method_name)
+        for method_name, method_func in predictors.items():
+            try:
+                chosen_annotation_frames = predict_annotation_candidates(
+                    video_frames_path, 
+                    num_candidates=num_candidate_frames,
+                    candidate_selection_function=method_func,
+                    masks_first_frame_only=masks_first_frame_only,
+                    masks_in_path=info['video_masks_path'], 
+                    masks_out_path=Path(info['masks_out_path']) / 'FIRST_FRAME_ONLY' / 'masks',  # used by some target-aware algorithms
+                    print_progress=False
+                )
+            except Exception as e:
+                print(f"[!!!] ERROR ({video_name},{method_name})={e}")
+                print("Resulting to uniform baseline")
+                chosen_annotation_frames = predict_annotation_candidates(
+                    video_frames_path,
+                    num_candidates=num_candidate_frames,
+                    candidate_selection_function=KNOWN_ANNOTATION_PREDICTORS['UNIFORM'],
+                    masks_in_path=info['video_masks_path'],
+                    print_progress=False
+                )
+                exceptions.append([video_name, method_name, str(e)])
+
+            torch.cuda.empty_cache()
             results[method_name] = json.dumps(chosen_annotation_frames)
             p_bar.update()
 
         output.loc[video_name] = results
 
-    output.index.name = 'video_name'
-    output.to_csv(csv_output_path)
+        # save updated after every video
+        output.index.name = 'video_name'
+        output.to_csv(csv_output_path)
+
+    if min(exceptions.shape) > 0:
+        exceptions.to_csv('output/exceptions.csv')
 
 
-def run_inference_with_pre_chosen_frames(chosen_frames_csv_path: str, videos_info: Dict[str, Dict], output_path: str, only_methods_subset: Set[str] = None):
+def run_inference_with_pre_chosen_frames(chosen_frames_csv_path: str, videos_info: Dict[str, Dict], output_path: str, only_methods_subset: Set[str] = None, compute_iou=False, IoU_results_save_path=None, **kwargs):
     df = pd.read_csv(chosen_frames_csv_path, index_col='video_name')
-    num_runs = np.prod(df.shape)
-    p_bar = tqdm(
-        desc='Running inference comparing multiple different AL approaches', total=num_runs)
+    if only_methods_subset is not None:
+        num_runs = df.shape[0] * len(only_methods_subset)
+    else:
+        num_runs = np.prod(df.shape)
+
+    if compute_iou:
+        assert IoU_results_save_path is not None
+        p_iou_dir = Path(IoU_results_save_path)
+
+    i = 0
+    p_bar = tqdm(desc='Running inference comparing multiple different AL approaches', total=num_runs)
 
     for video_name, info in videos_info.items():
         video_row = df.loc[video_name]
+        # ious = {}
         for method in video_row.index:
             if only_methods_subset is not None and method not in only_methods_subset:
                 continue
-
+            
             chosen_frames_str = video_row.loc[method]
             chosen_frames = json.loads(chosen_frames_str)
-            print(chosen_frames)
 
             video_frames_path = info['video_frames_path']
             video_masks_path = info['video_masks_path']
 
             output_masks_path = Path(output_path) / video_name / method
 
-            run_on_video(video_frames_path, video_masks_path, output_masks_path,
-                         frames_with_masks=chosen_frames, compute_iou=False, print_progress=False)
+            stats = run_on_video(video_frames_path, video_masks_path, output_masks_path,
+                         frames_with_masks=chosen_frames, compute_iou=compute_iou, print_progress=False, **kwargs)
+
+            if compute_iou:
+                p_out_curr_video_method = p_iou_dir / video_name
+                if not p_out_curr_video_method.exists():
+                    p_out_curr_video_method.mkdir(parents=True)
+
+                stats.to_csv(p_out_curr_video_method / f'{method}.csv')#f'output/AL_comparison_all_methods/{video_name}_{method}.csv')
+                # print(f"Video={video_name},method={method},IoU={stats['iou'].mean():.4f}")
+                # ious[f'{video_name}_{method}'] = [float(iou) for iou in stats['iou']]
 
             p_bar.update()
+            i += 1
+    
+        # with open(f'output/AL_comparison_all_methods/ious_{video_name}_all_methods.json', 'wt') as f_out:
+        #     json.dump(ious, f_out)
 
 
 def visualize_chosen_frames(video_name: str, num_total_frames: int, data: pd.Series, output_path: str):
@@ -234,6 +290,116 @@ def visualize_chosen_frames(video_name: str, num_total_frames: int, data: pd.Ser
     plt.savefig(p_out, bbox_inches='tight')
 
 # -------------------------END Inference and visualization utils --------------------------
+# ------------------------BEGIN metrics ---------------------------------------------------
+
+def _load_gt(p):
+    return np.stack([np.array(Image.open(p_gt).convert('P')) for p_gt in sorted(p.iterdir())])
+
+
+def _load_preds(p, palette: Image.Image, size: tuple):
+    return np.stack([Image.open(p_gt).convert('RGB').resize(size, resample=Image.Resampling.NEAREST).quantize(palette=palette, dither=Image.Dither.NONE) for p_gt in sorted(p.iterdir())])
+        
+def compute_metrics_al(p_source_masks, p_preds, looped=True):
+    def _proc(p_video: Path):
+        video_name = p_video.name
+        p_gts = p_source_masks / p_video.name
+        first_mask = Image.open(next(p_gts.iterdir())).convert('P')
+        w, h = first_mask.size
+        gts = _load_gt(p_gts)
+
+        stats = {
+            'video_name': video_name
+        }
+
+        for p_method in p_video.iterdir():
+            method_name = p_method.name
+            p_masks = p_method / 'masks'
+            preds = _load_preds(p_masks, palette=first_mask, size=(w, h))
+
+            assert preds.shape == gts.shape
+
+            iou = batched_jaccard(gts, preds)
+            avg_iou = iou.mean(axis=0)
+
+            f_score = batched_f_measure(gts, preds)
+            avg_f_score = f_score.mean(axis=0)
+
+            stats[f'{method_name}-iou'] = float(avg_iou)
+            stats[f'{method_name}-f'] = float(avg_f_score)
+
+            if looped:
+                n = iou.shape[0]
+                between = int(0.9 * n)
+                first_part_iou = iou[:between].mean()
+                second_part_iou = iou[between:].mean()
+
+                first_part_f_score = f_score[:between].mean()
+                second_part_f_score = f_score[between:].mean()
+
+                stats[f'{method_name}-iou-90'] = float(first_part_iou)
+                stats[f'{method_name}-iou-10'] = float(second_part_iou)
+                stats[f'{method_name}-f-90'] = float(first_part_f_score)
+                stats[f'{method_name}-f-10'] = float(second_part_f_score)
+
+        return stats
+
+    list_of_stats = p_umap(_proc, list(p_preds.iterdir()), num_cpus=3)
+        
+    results = pd.DataFrame.from_records(list_of_stats).dropna(axis='columns').set_index('video_name')
+    return results
+
+def compute_metrics(p_source_masks, p_preds):
+    list_of_stats = []
+    # for p_pred_video in list(p_preds.iterdir()):
+    def _proc(p_pred_video: Path):
+        video_name = p_pred_video.name
+        # if 'XMem' in str(p_pred_video):
+        p_pred_video = Path(p_pred_video) / 'masks'
+        p_gts = p_source_masks / video_name
+        first_mask = Image.open(next(p_gts.iterdir())).convert('P')
+        w, h = first_mask.size
+        gts = _load_gt(p_gts)
+
+        preds = _load_preds(p_pred_video, palette=first_mask, size=(w, h))
+
+        assert preds.shape == gts.shape
+
+        avg_iou = batched_jaccard(gts, preds).mean(axis=0)
+        avg_f_score = batched_f_measure(gts, preds).mean(axis=0)
+        stats = {
+            'video_name': video_name,
+            'iou': float(avg_iou),
+            'f': float(avg_f_score),
+        }
+
+        return stats
+        # list_of_stats.append(stats)
+    # p_source_masks = Path('/home/maksym/RESEARCH/Datasets/MOSE/train/Annotations')
+    # p_preds = Path('/home/maksym/RESEARCH/VIDEOS/RESULTS/XMem_memory/MOSE/AL_comparison')
+
+    list_of_stats = p_umap(_proc, sorted(p_preds.iterdir(), key=lambda x: len(os.listdir(x)), reverse=True), num_cpus=4)
+        
+    results = pd.DataFrame.from_records(list_of_stats).dropna(axis='columns').set_index('video_name')
+    return results
+
+# -------------------------END metrics ------------------------------------------------------
+
+def get_dataset_video_info(p_imgs_general, p_annotations_general, p_out_general, num_annotation_candidates=5):
+    videos_info = {}
+    
+    for p_video in sorted(p_imgs_general.iterdir(), key=lambda x: len(os.listdir(x)), reverse=True):  # longest video first to avoid OOM in the future
+        video_name = p_video.name
+        p_masks = p_annotations_general / video_name
+
+        videos_info[video_name] = dict(
+            num_annotation_candidates=num_annotation_candidates,
+            video_frames_path=p_video,
+            video_masks_path=p_masks,
+            masks_out_path=p_out_general / video_name
+        )
+
+    return videos_info
+
 
 
 if __name__ == "__main__":

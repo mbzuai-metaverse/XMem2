@@ -61,7 +61,9 @@ class MemoryManager:
         # selection:  B x C^k x H x W
         # TODO: keep groups in both..?
         # 1x64x30x54
-        num_groups = self.temporary_work_mem.num_groups
+
+        # = permanent_work_mem.num_groups, since it's always >= temporary_work_mem.num_groups
+        num_groups = max(self.temporary_work_mem.num_groups, self.permanent_work_mem.num_groups)
         h, w = query_key.shape[-2:]
 
         query_key = query_key.flatten(start_dim=2)
@@ -94,25 +96,30 @@ class MemoryManager:
 
             # compute affinity group by group as later groups only have a subset of keys
             for gi in range(1, num_groups):
+                temp_group_v_size = self.temporary_work_mem.get_v_size(gi)
+                perm_group_v_size = self.permanent_work_mem.get_v_size(gi)
+                temp_sim_size = temp_work_mem_similarity.shape[1] 
+                perm_sim_size = perm_work_mem_similarity.shape[1] 
+
                 if gi < self.long_mem.num_groups:
                     # merge working and lt similarities before softmax
                     affinity_one_group = do_softmax(
                         torch.cat([long_mem_similarity[:, -self.long_mem.get_v_size(gi):],
-                                   temp_work_mem_similarity[:, -self.temporary_work_mem.get_v_size(gi):],
-                                   perm_work_mem_similarity[:, -self.permanent_work_mem.get_v_size(gi):]],
-                                  1),
+                                   temp_work_mem_similarity[:, temp_sim_size-temp_group_v_size:],
+                                   perm_work_mem_similarity[:, perm_sim_size-perm_group_v_size:]],
+                                dim=1),
                         top_k=self.top_k, inplace=True)
                 else:
                     # no long-term memory for this group
                     affinity_one_group = do_softmax(torch.cat([
-                            temp_work_mem_similarity[:, -self.temporary_work_mem.get_v_size(gi):], 
-                            perm_work_mem_similarity[:, -self.permanent_work_mem.get_v_size(gi):]],
+                            temp_work_mem_similarity[:, temp_sim_size-temp_group_v_size:], 
+                            perm_work_mem_similarity[:, perm_sim_size-perm_group_v_size:]],
                             1),
                         top_k=self.top_k, inplace=(gi == num_groups-1))
                 affinity.append(affinity_one_group)
 
             all_memory_value = []
-            for gi, gv in enumerate(self.temporary_work_mem.value):
+            for gi in range(num_groups):
                 # merge the working and lt values before readout
                 if gi < self.long_mem.num_groups:
                     all_memory_value.append(torch.cat([self.long_mem.value[gi], self.temporary_work_mem.value[gi], self.permanent_work_mem.value[gi]], -1))
@@ -136,6 +143,8 @@ class MemoryManager:
             shrinkage = torch.cat([self.temporary_work_mem.shrinkage, self.permanent_work_mem.shrinkage], -1)
             # No long-term memory
             similarity = get_similarity(memory_key, shrinkage, query_key, selection)
+            temp_work_mem_similarity = similarity[:, :temp_work_mem_size]
+            perm_work_mem_similarity = similarity[:, temp_work_mem_size:]
 
             if self.enable_long_term:
                 affinity, usage = do_softmax(similarity, inplace=(num_groups == 1),
@@ -151,13 +160,25 @@ class MemoryManager:
 
             # compute affinity group by group as later groups only have a subset of keys
             for gi in range(1, num_groups):
-                affinity_one_group = do_softmax(similarity[:, -self.temporary_work_mem.get_v_size(gi):],
-                                                top_k=self.top_k, inplace=(gi == num_groups-1))
+                temp_group_v_size = self.temporary_work_mem.get_v_size(gi)
+                perm_group_v_size = self.permanent_work_mem.get_v_size(gi)
+                temp_sim_size = temp_work_mem_similarity.shape[1] 
+                perm_sim_size = perm_work_mem_similarity.shape[1] 
+
+                affinity_one_group = do_softmax(
+                    torch.cat([
+                        # concats empty tensor if the group is also empty for temporary memory
+                        temp_work_mem_similarity[:, temp_sim_size-temp_group_v_size:], 
+                        perm_work_mem_similarity[:, perm_sim_size-perm_group_v_size:], 
+                    ], dim=1),
+                    top_k=self.top_k, inplace=(gi == num_groups-1)
+                )
                 affinity.append(affinity_one_group)
 
             all_memory_value = []
-            for gi, gv in enumerate(self.temporary_work_mem.value):
-                all_memory_value.append(torch.cat([self.temporary_work_mem.value[gi], self.permanent_work_mem.value[gi]], -1))
+            for gi in range(num_groups):
+                group_v_cat = torch.cat([self.temporary_work_mem.value[gi], self.permanent_work_mem.value[gi]], -1)
+                all_memory_value.append(group_v_cat)
 
         # Shared affinity within each group
         all_readout_mem = torch.cat([
@@ -202,16 +223,28 @@ class MemoryManager:
         else:
             self.temporary_work_mem.add(key, value, shrinkage, selection, objects)
             
-        if not self.temporary_work_mem.engaged():
-            # first frame; we need to have both memories engaged to avoid crashes when concating
+        
+        num_temp_groups = self.temporary_work_mem.num_groups
+        num_perm_groups = self.permanent_work_mem.num_groups
+
+        if not self.temporary_work_mem.engaged() or (num_temp_groups != num_perm_groups):
+            # print(f"PERM_NUM_GROUPS={num_perm_groups} vs TEMP_NUM_GROUPS={num_temp_groups}", end=' ')
+            
+            # first frame or new group; we need to have both memories engaged to avoid crashes when concating
             # so we just initialize the temporary one with an empty tensor
             key0 = key[..., 0:0]
             value0 = value[..., 0:0]
             shrinkage0 = shrinkage[..., 0:0]
             selection0 = selection[..., 0:0]
+            if num_perm_groups > num_temp_groups:
+                # for preloading into permanent memory
+                self.temporary_work_mem.add(key0, value0, shrinkage0, selection0, objects)
+            else:
+                # for original memory mechanism
+                self.permanent_work_mem.add(key0, value0, shrinkage0, selection0, objects)
             
-            self.temporary_work_mem.add(key0, value0, shrinkage0, selection0, objects)
-
+            # print(f"AFTER->PERM_NUM_GROUPS={self.permanent_work_mem.num_groups} vs TEMP_NUM_GROUPS={self.temporary_work_mem.num_groups}")
+            
         # long-term memory cleanup
         if self.enable_long_term:
             # Do memory compressed if needed

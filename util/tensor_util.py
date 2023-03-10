@@ -1,3 +1,4 @@
+import numpy as np
 import torch.nn.functional as F
 import torch
 
@@ -13,6 +14,34 @@ def compute_tensor_iou(seg, gt):
     iou = (intersection + 1e-6) / (union + 1e-6)
     
     return iou 
+
+def compute_array_iou(seg, gt):
+    # grayscale 2D masks, each gray shade - unique object
+    seg = seg.squeeze()
+    gt = gt.squeeze()
+
+    ious = []
+    for color in np.unique(seg):
+        if color == 0:
+            continue  # skipping background
+        
+        curr_object_iou = compute_tensor_iou(
+            torch.tensor(seg == color),
+            torch.tensor(gt == color),
+        )
+
+        ious.append(curr_object_iou)
+
+    if not len(ious):
+        # GT is pure black, let's check if the mask also doesn't have any junk
+        curr_object_iou = compute_tensor_iou(
+            torch.tensor(seg == 0),
+            torch.tensor(gt == 0),
+        )
+        
+        ious.append(curr_object_iou)
+
+    return sum(ious) / len(ious)
 
 # STM
 def pad_divide_by(in_img, d):

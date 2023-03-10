@@ -1,21 +1,11 @@
 from functools import partial
-import json
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple, Union
 
 from sklearn.cluster import KMeans
 import pandas as pd
-from PIL import Image
 import torch
 import torchvision.transforms.functional as FT
-import numpy as np
 from torchvision.transforms import ColorJitter, Grayscale, RandomPosterize, RandomAdjustSharpness, ToTensor, RandomAffine
-import cv2
-from tqdm import tqdm
-import matplotlib.pyplot as plt
-
-from util.tensor_util import get_bbox_from_mask
 
 
 def select_n_frame_candidates(preds_df: pd.DataFrame, uncertainty_name: str, n=5):

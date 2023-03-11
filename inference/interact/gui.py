@@ -299,7 +299,13 @@ class App(QWidget):
         minimap_area.addLayout(import_area)
 
         chosen_figures_area = QVBoxLayout(self.references_tab)
-        chosen_figures_area.addWidget(QLabel("TEST TEST FIGURES"))
+        chosen_figures_area.addWidget(QLabel("SAVED REFERENCES IN PERMANENT MEMORY"))
+        self.references_collection = ImageLinkCollection(self.scroll_to, self.load_current_image_thumbnail)
+        chosen_figures_area.addWidget(self.references_collection)
+        
+        self.candidates_collection = ImageLinkCollection(self.scroll_to, self.load_current_image_thumbnail)
+        chosen_figures_area.addWidget(QLabel("ANNOTATION CANDIDATES"))
+        chosen_figures_area.addWidget(self.candidates_collection)
 
         tabs_layout.addWidget(self.tabs)
         tabs_layout.addWidget(self.console)
@@ -337,7 +343,7 @@ class App(QWidget):
         self.brush_vis_alpha = np.zeros((self.height, self.width, 1), dtype=np.float32)
         self.cursur = 0
         self.on_showing = None
-        self.reference_ids = []
+        self.reference_ids = set()
         self.candidates_ids = []
 
         # Zoom parameters
@@ -477,6 +483,19 @@ class App(QWidget):
         qImg = QImage(self.viz.data, width, height, bytesPerLine, QImage.Format_RGB888)
         self.main_canvas.setPixmap(QPixmap(qImg.scaled(self.main_canvas.size(),
                 Qt.KeepAspectRatio, Qt.FastTransformation)))
+        
+    def load_current_image_thumbnail(self, size=128):
+        curr_pixmap = self.main_canvas.pixmap()
+        curr_size = curr_pixmap.size()
+        h = curr_size.height()
+        w = curr_size.width()
+
+        if h < w:
+            thumbnail = curr_pixmap.scaledToHeight(size)
+        else:
+            thumbnail = curr_pixmap.scaledToWidth(size)
+
+        return thumbnail
 
     def show_current_frame(self, fast=False):
         # Re-compute overlay and show the image
@@ -565,6 +584,11 @@ class App(QWidget):
             self.cursur = self.tl_slider.value()
             self.load_current_image_mask()
             self.show_current_frame()
+
+    def scroll_to(self, idx):
+        assert self.tl_slider.minimum() <= idx <= self.tl_slider.maximum()
+        self.tl_slider.setValue(idx)
+        self.tl_slide()
 
     def brush_slide(self):
         self.brush_size = self.brush_slider.value()
@@ -661,18 +685,21 @@ class App(QWidget):
     def on_compute_candidates(self):
         def _update_candidates(candidates_ids):
             print(candidates_ids)
+            for i in self.candidates_ids:
+                # removing any old candidates left
+                self.candidates_collection.remove_image(i)
             self.candidates_ids = candidates_ids
+
+            prev_pos = self.cursur
+            for i in self.candidates_ids:
+                self.scroll_to(i)
+                self.candidates_collection.add_image(i)
+            self.scroll_to(prev_pos)
 
         def _update_progress(i):
             candidate_progress.setValue(i)
 
         k = 5
-        # self.candidate_progress.setMaximum(k)
-        # self.candidate_progress.exec_()
- # Candidate progress dialog
-
-        # time.sleep(5)
-        # my_dialog.close()
         candidate_progress = QProgressDialog("Selecting candidates", None, 0, k, self, Qt.WindowFlags(Qt.WindowType.Dialog | ~Qt.WindowCloseButtonHint))
         worker = Worker(select_next_candidates, self.res_man.keys, self.res_man.small_masks, k, self.reference_ids, print_progress=False, alpha=0.5, min_mask_presence_px=9) # Any other args, kwargs are passed to the run function
         worker.signals.result.connect(_update_candidates)
@@ -689,8 +716,13 @@ class App(QWidget):
 
         self.processor.put_to_permanent_memory(current_image_torch, current_prob, self.cursur)
 
-        self.reference_ids.append(self.cursur)
+        self.reference_ids.add(self.cursur)
+        self.references_collection.add_image(self.cursur)
         
+        if self.cursur in self.candidates_ids:
+            self.candidates_ids.remove(self.cursur)
+
+            self.candidates_collection.remove_image(self.cursur)
         # TODO: remove from candidates if was there
 
     def on_prev_frame(self):

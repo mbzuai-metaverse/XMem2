@@ -78,6 +78,9 @@ class App(QWidget):
         self.compute_candidates_button = QPushButton('Compute Annotation candidates')
         self.compute_candidates_button.clicked.connect(self.on_compute_candidates)
 
+        self.full_run_button = QPushButton('FULL Propagate')
+        self.full_run_button.clicked.connect(self.on_full_propagation)
+
         self.forward_run_button = QPushButton('Forward Propagate')
         self.forward_run_button.clicked.connect(self.on_forward_propagation)
         self.forward_run_button.setMinimumWidth(200)
@@ -173,7 +176,7 @@ class App(QWidget):
         self.zoom_m_button.clicked.connect(self.on_zoom_minus)
 
         # Parameters setting
-        self.clear_mem_button = QPushButton('Clear memory')
+        self.clear_mem_button = QPushButton('Clear TEMP memory')
         self.clear_mem_button.clicked.connect(self.on_clear_memory)
 
         self.work_mem_gauge, self.work_mem_gauge_layout = create_gauge('Working memory size')
@@ -248,6 +251,7 @@ class App(QWidget):
         navi.addWidget(self.save_reference_button)
         navi.addWidget(self.compute_candidates_button)
         navi.addWidget(self.commit_button)
+        navi.addWidget(self.full_run_button)
         navi.addWidget(self.forward_run_button)
         navi.addWidget(self.backward_run_button)
 
@@ -599,6 +603,10 @@ class App(QWidget):
         except AttributeError:
             # Initialization, forget about it
             pass
+    
+    def on_full_propagation(self):
+        self.scroll_to(0)
+        self.on_forward_propagation()
 
     def on_forward_propagation(self):
         if self.propagating:
@@ -633,10 +641,12 @@ class App(QWidget):
         # start to propagate
         self.load_current_torch_image_mask()
         # TODO: put into permanent memory
+        # TODO: debug why quality so bad
         self.show_current_frame(fast=True)
 
         self.console_push_text('Propagation started.')
-        self.current_prob, key = self.processor.step(self.current_image_torch, self.current_prob[1:], return_key=True)
+        msk = self.current_prob[1:] if self.cursur in self.reference_ids else None
+        self.current_prob, key = self.processor.step(self.current_image_torch, msk, return_key=True)
         self.res_man.add_key_with_mask(self.cursur, key, self.current_prob)
         
         self.current_mask = torch_prob_to_numpy_mask(self.current_prob)
@@ -653,8 +663,8 @@ class App(QWidget):
             self.load_current_image_mask(no_mask=True)
             self.load_current_torch_image_mask(no_mask=True)
 
-            # TODO: read existing mask (if there is one), pass to .step()
-            self.current_prob, key = self.processor.step(self.current_image_torch, return_key=True)
+            msk = self.current_prob[1:] if self.cursur in self.reference_ids else None
+            self.current_prob, key = self.processor.step(self.current_image_torch, msk, return_key=True)
             self.res_man.add_key_with_mask(self.cursur, key, self.current_prob)
 
             self.current_mask = torch_prob_to_numpy_mask(self.current_prob)
@@ -714,7 +724,7 @@ class App(QWidget):
         current_image_torch, _ = image_to_torch(self.current_image)
         current_prob = index_numpy_to_one_hot_torch(self.current_mask, self.num_objects+1).cuda()
 
-        self.processor.put_to_permanent_memory(current_image_torch, current_prob, self.cursur)
+        self.processor.put_to_permanent_memory(current_image_torch, current_prob[1:], self.cursur)
 
         self.reference_ids.add(self.cursur)
         self.references_collection.add_image(self.cursur)

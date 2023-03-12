@@ -263,6 +263,17 @@ class ClickableLabel(QLabel):
         if event.button() == Qt.LeftButton and event.pos() in self.rect():
             self.clicked.emit()
 
+
+class ImageWithCaption(QWidget):
+    def __init__(self, img: QLabel, caption: str, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        
+        self.layout = QVBoxLayout(self)
+        self.text_label = QLabel(caption)
+        self.layout.addWidget(self.text_label)
+        self.layout.addWidget(img)
+
+        self.layout.setAlignment(self.text_label, Qt.AlignmentFlag.AlignHCenter)
 class ImageLinkCollection(QWidget):
     def __init__(self, on_click: callable, load_image: callable, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -287,10 +298,12 @@ class ImageLinkCollection(QWidget):
         img_widget.setPixmap(image)
 
         img_widget.clicked.connect(partial(self.on_click, img_idx))
+
+        wrapper = ImageWithCaption(img_widget, f"Frame {img_idx:>6d}")
         # layout.addWidget(img_widget)
 
-        self.img_widgets_lookup[img_idx] = img_widget
-        self.flow_layout.addWidget(img_widget)
+        self.img_widgets_lookup[img_idx] = wrapper
+        self.flow_layout.addWidget(wrapper)
 
     def remove_image(self, img_idx):
         img_widget = self.img_widgets_lookup.pop(img_idx)

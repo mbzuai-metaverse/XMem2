@@ -15,6 +15,7 @@ but with XMem as the backbone and is more memory (for both CPU and GPU) friendly
 import functools
 
 import os
+from time import perf_counter
 import cv2
 
 from inference.frame_selection.frame_selection import select_next_candidates
@@ -754,13 +755,17 @@ class App(QWidget):
         candidate_progress.open()
 
     def on_save_reference(self):
-        # TODO: update permanent memory. Add if new, replace if already existed
         if self.interaction is not None:
             self.on_commit()
         current_image_torch, _ = image_to_torch(self.current_image)
         current_prob = index_numpy_to_one_hot_torch(self.current_mask, self.num_objects+1).cuda()
 
-        is_update = self.processor.put_to_permanent_memory(current_image_torch, current_prob[1:], self.cursur)
+        msk = current_prob[1:]
+        a = perf_counter()
+        is_update = self.processor.put_to_permanent_memory(current_image_torch, msk, self.cursur)
+        b = perf_counter()
+
+        self.console_push_text(f"Saving took {(b-a)*1000:.2f} ms.")
 
         if is_update:
             self.reference_ids.remove(self.cursur)

@@ -96,7 +96,7 @@ def calculate_proposals_for_annotations_with_iterative_distance_cycle_MASKS(data
         return chosen_frames
 
 
-def select_next_candidates(keys: torch.Tensor, masks: List[torch.tensor], num_next_candidates: int, previously_chosen_candidates: List[int] = (0,), print_progress=False, alpha=1.0, min_mask_presence_px=9, device: torch.device = 'cuda:0', progress_callback=None):
+def select_next_candidates(keys: torch.Tensor, masks: List[torch.tensor], num_next_candidates: int, previously_chosen_candidates: List[int] = (0,), print_progress=False, alpha=1.0, min_mask_presence_px=9, device: torch.device = 'cuda:0', progress_callback=None, only_new_candidates=True):
     assert len(keys) == len(masks)
     assert len(keys) > 0
     assert keys[0].shape[-2:] == masks[0].shape[-2:]
@@ -201,4 +201,6 @@ def select_next_candidates(keys: torch.Tensor, masks: List[torch.tensor], num_ne
             if progress_callback is not None:
                 progress_callback.emit(i + 1)
 
+        if only_new_candidates:
+            chosen_candidates = chosen_candidates[len(previously_chosen_candidates):]
         return chosen_candidates

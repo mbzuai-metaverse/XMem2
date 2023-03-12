@@ -1,3 +1,6 @@
+from time import perf_counter
+
+import torch
 from inference.memory_manager import MemoryManager
 from model.network import XMem
 from model.aggregate import aggregate
@@ -19,6 +22,9 @@ class InferenceCore:
         self.clear_memory()
         self.all_labels = None
 
+        # warmup
+        self.network.encode_key(torch.zeros((1, 3, 480, 854), device='cuda:0'))
+
     def clear_memory(self, keep_permanent=False):
         self.curr_ti = -1
         self.last_mem_ti = 0
@@ -28,7 +34,7 @@ class InferenceCore:
             new_memory = self.memory.copy_perm_mem_only()
         else:
             new_memory = MemoryManager(config=self.config)
-            
+
         self.memory = new_memory
 
     def update_config(self, config):

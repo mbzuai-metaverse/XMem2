@@ -387,7 +387,7 @@ class ImageLinkCollection(QWidget):
         self.flow_layout.removeWidget(img_widget)
 
     def on_close_click(self, img_idx):
-        qm = QMessageBox()
+        qm = QMessageBox(QMessageBox.Icon.Warning, "Confirm deletion", "")
         question = f"Delete Frame {img_idx}"
         if self.name is not None:
             question += f' from {self.name}'

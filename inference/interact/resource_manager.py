@@ -206,15 +206,42 @@ class ResourceManager:
         else:
             return None
 
-    def read_external_image(self, file_name, size=None):
+    def read_external_image(self, file_name, size=None, force_mask=False):
         image = Image.open(file_name)
         is_mask = image.mode in ['L', 'P']
+
         if size is not None:
             # PIL uses (width, height)
             image = image.resize((size[1], size[0]), 
-                    resample=Image.Resampling.NEAREST if is_mask else Image.Resampling.BICUBIC)
+                    resample=Image.Resampling.NEAREST if is_mask or force_mask else Image.Resampling.BICUBIC)
+        if force_mask and image.mode != 'P':
+            if image.mode in ['RGB', 'L'] and len(image.getcolors()) <= 2:
+                image = np.array(image.convert('L'))
+                # hardcoded for b&w images
+                image = np.where(image, 1, 0)  # 255 (or whatever) -> binarize
+
+                return image.astype('uint8')
+            image = image.convert('P', palette=self.palette)  # saved without DAVIS palette, just number objects 0, 1, ...
+            
         image = np.array(image)
         return image
+    
+    def replace_mask_with_external(self, ti, mask_path):
+        try:
+            image = Image.open(mask_path)
+            assert image.mode in ['L', 'P', 'RGB']
+
+            if image.mode == 'RGB':
+                if len(image.getcolors()) <= 2:
+                    image = image.convert('L')
+
+                image = image.convert('P')
+                image.putpalette(self.palette)
+                image.save(path.join(self.mask_dir, self.names[ti]+'.png'))
+
+        except (FileNotFoundError, AssertionError, ValueError):
+            raise ValueError(f"Invalid file: {mask_path}")
+
 
     def invalidate(self, ti):
         # the image buffer is never invalidated

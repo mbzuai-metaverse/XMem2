@@ -15,6 +15,7 @@ but with XMem as the backbone and is more memory (for both CPU and GPU) friendly
 import functools
 
 import os
+from pathlib import Path
 from time import perf_counter
 import cv2
 
@@ -61,6 +62,7 @@ class App(QWidget):
         self.processor.set_all_labels(list(range(1, self.num_objects+1)))
         self.res_man = resource_manager
         self.threadpool = QThreadPool()
+        self.last_opened_directory = str(Path.home())
 
         self.num_frames = len(self.res_man)
         self.height, self.width = self.res_man.h, self.res_man.w
@@ -76,7 +78,7 @@ class App(QWidget):
         self.commit_button = QPushButton('Commit')
         self.commit_button.clicked.connect(self.on_commit)
         self.save_reference_button = QPushButton('Save reference')
-        self.save_reference_button.clicked.connect(self.on_save_reference)
+        self.save_reference_button.clicked.connect(self.on_save_reference) 
         self.compute_candidates_button = QPushButton('Compute Annotation candidates')
         self.compute_candidates_button.clicked.connect(self.on_compute_candidates)
 
@@ -251,7 +253,6 @@ class App(QWidget):
         
         # self.test_btn = QPushButton('TEST')
         # self.test_btn.clicked.connect(self.TEST)
-        
         # navi.addWidget(self.test_btn)
         navi.addWidget(self.save_reference_button)
         # navi.addWidget(self.compute_candidates_button)
@@ -409,10 +410,6 @@ class App(QWidget):
 
         self.console_push_text('Initialized.')
         self.initialized = True
-
-    def TEST(self):
-        print(self.res_man.all_masks_present())
-        pass
 
     def resizeEvent(self, event):
         self.show_current_frame()
@@ -1083,7 +1080,9 @@ class App(QWidget):
 
     def _open_file(self, prompt):
         options = QFileDialog.Options()
-        file_name, _ = QFileDialog.getOpenFileName(self, prompt, "", "Image files (*)", options=options)
+        file_name, _ = QFileDialog.getOpenFileName(self, prompt, self.last_opened_directory, "Image files (*)", options=options)
+        if file_name:
+            self.last_opened_directory = str(Path(file_name).parent)
         return file_name
 
     def on_import_mask(self):
@@ -1091,7 +1090,7 @@ class App(QWidget):
         if len(file_name) == 0:
             return
 
-        mask = self.res_man.read_external_image(file_name, size=(self.height, self.width))
+        mask = self.res_man.read_external_image(file_name, size=(self.height, self.width), force_mask=True)
 
         shape_condition = (
             (len(mask.shape) == 2) and
@@ -1108,11 +1107,16 @@ class App(QWidget):
         elif not object_condition:
             self.console_push_text(f'Expected {self.num_objects} objects. Got {mask.max()} objects instead.')
         else:
-            self.console_push_text(f'Mask file {file_name} loaded.')
-            self.current_image_torch = self.current_prob = None
-            self.current_mask = mask
-            self.show_current_frame()
-            self.save_current_mask()
+            qm = QMessageBox(QMessageBox.Icon.Question, "Confirm mask replacement", "")
+            question = f"Replace mask for current frame {self.cursur} with {Path(file_name).name}?"
+            ret = qm.question(self, 'Confirm mask replacemen', question, qm.Yes | qm.No)
+
+            if ret == qm.Yes:
+                self.console_push_text(f'Mask file {file_name} loaded.')
+                self.current_image_torch = self.current_prob = None
+                self.current_mask = mask
+                self.show_current_frame()
+                self.save_current_mask()
 
     def on_import_layer(self):
         file_name = self._open_file('Layer')

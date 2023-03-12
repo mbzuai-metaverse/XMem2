@@ -4,7 +4,7 @@ import time
 import traceback, sys
 
 from PyQt5.QtCore import Qt, QRunnable, pyqtSlot, pyqtSignal, QObject, QPoint, QRect, QSize
-from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QProgressBar, QDialog, QWidget, QProgressDialog, QScrollArea, QLayout, QLayoutItem, QStyle, QSizePolicy, QSpacerItem, QFrame, QPushButton)
+from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QProgressBar, QDialog, QWidget, QProgressDialog, QScrollArea, QLayout, QLayoutItem, QStyle, QSizePolicy, QSpacerItem, QFrame, QPushButton, QSlider)
 
 class WorkerSignals(QObject):
     '''
@@ -255,6 +255,65 @@ class JFlowLayout(FlowLayout):
         spacerItem = QSpacerItem(w, 0, QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.addItem(spacerItem)
 
+
+class NamedSlider(QWidget):
+    valueChanged = pyqtSignal(float)
+
+    def __init__(self, name: str, min_: int, max_: int, step_size: int, default: int, multiplier=1, min_text=None, max_text=None, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.name = name
+        self.multiplier = multiplier
+        self.min_text = min_text
+        self.max_text = max_text
+
+        layout = QHBoxLayout(self)
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setMinimum(min_)
+        self.slider.setMaximum(max_)
+        self.slider.setValue(default)
+        self.slider.setTickPosition(QSlider.TicksBelow)
+        self.slider.setTickInterval(step_size)
+
+        name_label = QLabel(name + " |")
+        self.value_label = QLabel()
+
+        layout.addWidget(name_label)
+        layout.addWidget(self.value_label)
+        layout.addWidget(self.slider)
+
+        self.update_name()
+
+        self.slider.valueChanged.connect(self.on_slide)
+
+    def value(self):
+        return self.slider.value() * self.multiplier
+    
+    def on_slide(self):
+        self.update_name()
+        self.valueChanged.emit(self.slider.value() * self.multiplier)
+
+    def update_name(self):
+        value = self.value()
+        value_str = None
+        if self.multiplier != 1:
+            if isinstance(self.multiplier, float):
+                min_str = f'{self.slider.minimum() * self.multiplier:.2f}'
+                value_str = f'{value:.2f}'
+                max_str = f'{self.slider.maximum() * self.multiplier:.2f}'
+        
+        if value_str is None:
+            min_str = f'{self.slider.minimum() * self.multiplier:d}'
+            value_str = f'{value:d}'
+            max_str = f'{self.slider.maximum() * self.multiplier:d}'
+
+        if self.min_text is not None:
+            min_str += f' ({self.min_text})'  
+        if self.max_text is not None:
+            max_str += f' ({self.max_text})' 
+
+        final_str = f'{min_str} <= {value_str} <= {max_str}' 
+
+        self.value_label.setText(final_str)
 
 class ClickableLabel(QLabel):
     clicked = pyqtSignal()

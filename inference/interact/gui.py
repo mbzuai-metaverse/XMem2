@@ -94,6 +94,9 @@ class App(QWidget):
         self.reset_button = QPushButton('Reset Frame')
         self.reset_button.clicked.connect(self.on_reset_mask)
 
+        self.spacebar = QShortcut(QKeySequence(Qt.Key_Space), self)
+        self.spacebar.activated.connect(self.pause_propagation)
+
         # LCD
         self.lcd = QTextEdit()
         self.lcd.setReadOnly(True)
@@ -246,12 +249,12 @@ class App(QWidget):
         navi.addWidget(self.save_visualization_checkbox)
         navi.addStretch(1)
         
-        self.test_btn = QPushButton('TEST')
-        self.test_btn.clicked.connect(self.TEST)
+        # self.test_btn = QPushButton('TEST')
+        # self.test_btn.clicked.connect(self.TEST)
         
-        navi.addWidget(self.test_btn)
+        # navi.addWidget(self.test_btn)
         navi.addWidget(self.save_reference_button)
-        navi.addWidget(self.compute_candidates_button)
+        # navi.addWidget(self.compute_candidates_button)
         navi.addWidget(self.commit_button)
         navi.addWidget(self.full_run_button)
         navi.addWidget(self.forward_run_button)
@@ -262,11 +265,20 @@ class App(QWidget):
         draw_area.addWidget(self.main_canvas, 4)
 
         self.tabs = QTabWidget()
+        self.tabs.setMinimumWidth(500)
         self.map_tab = QWidget()
         self.references_tab = QWidget()
 
+        references_scroll = QScrollArea()
+        references_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        references_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        references_scroll.setWidgetResizable(True)
+        references_scroll.setWidget(self.references_tab)
+
+        self.references_scroll = references_scroll
+
         self.tabs.addTab(self.map_tab,"Minimap && Stats")
-        self.tabs.addTab(self.references_tab,"References && Candidates")
+        self.tabs.addTab(self.references_scroll, "References && Candidates")
 
         tabs_layout = QVBoxLayout()
 
@@ -316,6 +328,15 @@ class App(QWidget):
         tabs_layout.addWidget(self.tabs)
         tabs_layout.addWidget(self.console)
         draw_area.addLayout(tabs_layout, 1)
+
+        candidates_area = QVBoxLayout()
+        self.candidates_k_slider = NamedSlider("k", 1, 10, 1, default=5)
+        self.candidates_alpha_slider = NamedSlider("α", 0, 100, 1, default=50, multiplier=0.01, min_text='Frames', max_text='Masks')
+        candidates_area.addWidget(QLabel("Candidates calculation hyperparameters"))
+        candidates_area.addWidget(self.candidates_k_slider)
+        candidates_area.addWidget(self.candidates_alpha_slider)
+        candidates_area.addWidget(self.compute_candidates_button)
+        tabs_layout.addLayout(candidates_area)
 
         layout = QVBoxLayout()
         layout.addLayout(draw_area)
@@ -713,7 +734,6 @@ class App(QWidget):
             if self.cursur == 0 or self.cursur == self.num_frames-1:
                 break
         
-        # TODO: after finished, compute candidates and show maybe? 
         self.propagating = False
         self.curr_frame_dirty = False
         self.on_pause()
@@ -727,6 +747,16 @@ class App(QWidget):
         self.complete_interaction()
         self.update_interacted_mask()
 
+    def confirm_ready_for_candidates_selection(self):
+        if self.res_man.all_masks_present():
+            return True
+        
+        qm = QErrorMessage(self)
+        qm.setWindowModality(Qt.WindowModality.WindowModal)
+        qm.showMessage("Run propagation on all frames first!")
+
+        return False
+    
     def on_compute_candidates(self):
         def _update_candidates(candidates_ids):
             print(candidates_ids)
@@ -740,13 +770,18 @@ class App(QWidget):
                 self.scroll_to(i)
                 self.candidates_collection.add_image(i)
             self.scroll_to(prev_pos)
+            self.tabs.setCurrentIndex(1)
 
         def _update_progress(i):
             candidate_progress.setValue(i)
 
-        k = 5
+        if not self.confirm_ready_for_candidates_selection():
+            return 
+
+        k = self.candidates_k_slider.value()
+        alpha = self.candidates_alpha_slider.value()
         candidate_progress = QProgressDialog("Selecting candidates", None, 0, k, self, Qt.WindowFlags(Qt.WindowType.Dialog | ~Qt.WindowCloseButtonHint))
-        worker = Worker(select_next_candidates, self.res_man.keys, self.res_man.small_masks, k, self.reference_ids, print_progress=False, alpha=0.5, min_mask_presence_px=9) # Any other args, kwargs are passed to the run function
+        worker = Worker(select_next_candidates, self.res_man.keys, self.res_man.small_masks, k, self.reference_ids, print_progress=False, alpha=alpha, min_mask_presence_px=9) # Any other args, kwargs are passed to the run function
         worker.signals.result.connect(_update_candidates)
         worker.signals.progress.connect(_update_progress)
 

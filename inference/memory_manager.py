@@ -11,6 +11,7 @@ class MemoryManager:
     """
 
     def __init__(self, config):
+        self.config = config
         self.hidden_dim = config['hidden_dim']
         self.top_k = config['top_k']
 
@@ -32,7 +33,7 @@ class MemoryManager:
 
         self.temporary_work_mem = KeyValueMemoryStore(count_usage=self.enable_long_term)
         self.permanent_work_mem = KeyValueMemoryStore(count_usage=False)
-        self.frame_id_to_mem_idx = dict()
+        self.frame_id_to_permanent_mem_idx = dict()
         if self.enable_long_term:
             self.long_mem = KeyValueMemoryStore(count_usage=self.enable_long_term_usage)
 
@@ -189,7 +190,27 @@ class MemoryManager:
 
         return all_readout_mem.view(all_readout_mem.shape[0], self.CV, h, w)
 
-    def add_memory(self, key, shrinkage, value, objects, selection=None, permanent=False, ignore=False):
+    def update_permanent_memory(self, frame_idx, key, shrinkage, value, selection=None):
+        saved_pos = self.frame_id_to_permanent_mem_idx[frame_idx]
+
+        key = key.flatten(start_dim=2)
+        shrinkage = shrinkage.flatten(start_dim=2)
+        value = value[0].flatten(start_dim=2)
+
+        if selection is not None:
+            selection = selection.flatten(start_dim=2)
+
+        self.permanent_work_mem.replace_at(saved_pos, key, value, shrinkage, selection)
+
+    def remove_from_permanent_memory(self, frame_idx):
+        elem_size = self.HW
+        saved_pos = self.frame_id_to_permanent_mem_idx[frame_idx]
+
+        self.permanent_work_mem.remove_at(saved_pos, elem_size)
+
+        del self.frame_id_to_permanent_mem_idx[frame_idx]
+
+    def add_memory(self, key, shrinkage, value, objects, selection=None, permanent=False, ignore=False, ti=None):
         # key: 1*C*H*W
         # value: 1*num_objects*C*H*W
         # objects contain a list of object indices
@@ -220,7 +241,9 @@ class MemoryManager:
             pass # all permanent frames are pre-placed into permanent memory (when using our memory modification) 
                 # also ignores the first frame (#0) when using original memory mechanism, since it's already in the permanent memory
         elif permanent:
-            self.permanent_work_mem.add(key, value, shrinkage, selection, objects)
+            pos = self.permanent_work_mem.add(key, value, shrinkage, selection, objects)
+            if ti is not None:
+                self.frame_id_to_permanent_mem_idx[ti] = pos
         else:
             self.temporary_work_mem.add(key, value, shrinkage, selection, objects)
             
@@ -278,7 +301,7 @@ class MemoryManager:
         return self.hidden
     
     def frame_already_saved(self, ti):
-        return ti in self.frame_id_to_mem_idx
+        return ti in self.frame_id_to_permanent_mem_idx
 
     # def slices_excluding_permanent(self, group_value, start, end):
     #     HW = self.HW
@@ -366,3 +389,27 @@ class MemoryManager:
         prototype_shrinkage = self._readout(affinity[0], candidate_shrinkage) if candidate_shrinkage is not None else None
 
         return prototype_key, prototype_value, prototype_shrinkage
+    
+    def copy_perm_mem_only(self):
+        new_mem = MemoryManager(config=self.config)
+        new_mem.permanent_work_mem = self.permanent_work_mem
+        
+        key0 = self.permanent_work_mem.key[..., 0:0]
+        value0 = self.permanent_work_mem.value[0][..., 0:0]
+        shrinkage0 = self.permanent_work_mem.shrinkage[..., 0:0] if self.permanent_work_mem.shrinkage is not None else None
+        selection0 = self.permanent_work_mem.selection[..., 0:0] if self.permanent_work_mem.selection is not None else None
+
+        new_mem.temporary_work_mem.add(key0, value0, shrinkage0, selection0, self.permanent_work_mem.all_objects)
+
+        new_mem.CK = self.permanent_work_mem.key.shape[1]
+        new_mem.CV = self.permanent_work_mem.value[0].shape[1]
+
+        key_shape = self.permanent_work_mem.key.shape
+        sample_key = self.permanent_work_mem.key[..., 0:self.HW].view(*key_shape[:-1], self.H, self.W)
+        new_mem.create_hidden_state(len(self.permanent_work_mem.all_objects), sample_key)
+        
+        new_mem.temporary_work_mem.obj_groups = self.temporary_work_mem.obj_groups
+        new_mem.temporary_work_mem.all_objects = self.temporary_work_mem.all_objects
+
+        return new_mem
+

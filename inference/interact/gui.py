@@ -26,7 +26,8 @@ import torch
 
 from PyQt5.QtWidgets import (QWidget, QApplication, QComboBox, QCheckBox,
     QHBoxLayout, QLabel, QPushButton, QTextEdit, QSpinBox, QFileDialog,
-    QPlainTextEdit, QVBoxLayout, QSizePolicy, QButtonGroup, QSlider, QShortcut, QRadioButton, QTabWidget, QDialog)
+    QPlainTextEdit, QVBoxLayout, QSizePolicy, QButtonGroup, QSlider, QShortcut, 
+    QRadioButton, QTabWidget, QDialog, QErrorMessage, QMessageBox)
 
 from PyQt5.QtGui import QPixmap, QKeySequence, QImage, QTextCursor, QIcon
 from PyQt5.QtCore import Qt, QTimer, QThreadPool
@@ -79,14 +80,14 @@ class App(QWidget):
         self.compute_candidates_button.clicked.connect(self.on_compute_candidates)
 
         self.full_run_button = QPushButton('FULL Propagate')
-        self.full_run_button.clicked.connect(self.on_full_propagation)
+        self.full_run_button.clicked.connect(partial(self.general_propagation_callback, propagation_type='full'))
 
         self.forward_run_button = QPushButton('Forward Propagate')
-        self.forward_run_button.clicked.connect(self.on_forward_propagation)
+        self.forward_run_button.clicked.connect(partial(self.general_propagation_callback, propagation_type='forward'))
         self.forward_run_button.setMinimumWidth(200)
 
         self.backward_run_button = QPushButton('Backward Propagate')
-        self.backward_run_button.clicked.connect(self.on_backward_propagation)
+        self.backward_run_button.clicked.connect(partial(self.general_propagation_callback, propagation_type='backward'))
         self.backward_run_button.setMinimumWidth(200)
 
         self.reset_button = QPushButton('Reset Frame')
@@ -176,7 +177,7 @@ class App(QWidget):
         self.zoom_m_button.clicked.connect(self.on_zoom_minus)
 
         # Parameters setting
-        self.clear_mem_button = QPushButton('Clear TEMP memory')
+        self.clear_mem_button = QPushButton('Clear TEMP and LONG memory')
         self.clear_mem_button.clicked.connect(self.on_clear_memory)
 
         self.work_mem_gauge, self.work_mem_gauge_layout = create_gauge('Working memory size')
@@ -378,10 +379,11 @@ class App(QWidget):
         self.vis_target_objects = [1]
         # try to load the default overlay
         self._try_load_layer('./docs/ECCV-logo.png')
- 
+
         self.load_current_image_mask()
         self.show_current_frame()
         self.show()
+        self.style_new_reference()
 
         self.console_push_text('Initialized.')
         self.initialized = True
@@ -513,9 +515,18 @@ class App(QWidget):
         self.lcd.setText('{: 3d} / {: 3d}'.format(self.cursur, self.num_frames-1))
         self.tl_slider.setValue(self.cursur)
 
-    def show_candidates(self):
-        # TODO: draw image grid
-        pass
+        if self.cursur in self.reference_ids:
+            self.style_editing_reference()
+        else:
+            self.style_new_reference()
+
+    def style_editing_reference(self):
+        self.save_reference_button.setText("Update reference")
+        self.save_reference_button.setStyleSheet('QPushButton {background-color: #E4A11B; font-size: bold; }')
+
+    def style_new_reference(self):
+        self.save_reference_button.setText("Save reference")
+        self.save_reference_button.setStyleSheet('QPushButton {background-color: #14A44D; font-size: bold;}')
 
     def pixel_pos_to_image_pos(self, x, y):
         # Un-scale and un-pad the label coordinates into image coordinates
@@ -603,6 +614,26 @@ class App(QWidget):
         except AttributeError:
             # Initialization, forget about it
             pass
+
+    def confirm_ready_for_propagation(self):
+        if len(self.reference_ids) > 0:
+            return True
+        
+        qm = QErrorMessage(self)
+        qm.setWindowModality(Qt.WindowModality.WindowModal)
+        qm.showMessage("Save at least 1 reference!")
+
+        return False
+
+    def general_propagation_callback(self, propagation_type: str):
+        if not self.confirm_ready_for_propagation():
+            return
+        if propagation_type == 'full':
+            self.on_full_propagation()
+        elif propagation_type == 'forward':
+            self.on_forward_propagation()
+        elif propagation_type == 'backward':
+            self.on_backward_propagation()
     
     def on_full_propagation(self):
         self.scroll_to(0)
@@ -614,6 +645,7 @@ class App(QWidget):
             self.propagating = False
         else:
             self.propagate_fn = self.on_next_frame
+            self.full_run_button.setEnabled(False)
             self.backward_run_button.setEnabled(False)
             self.forward_run_button.setText('Pause Propagation')
             self.on_propagation()
@@ -624,12 +656,14 @@ class App(QWidget):
             self.propagating = False
         else:
             self.propagate_fn = self.on_prev_frame
+            self.full_run_button.setEnabled(False)
             self.forward_run_button.setEnabled(False)
             self.backward_run_button.setText('Pause Propagation')
             self.on_propagation()
 
     def on_pause(self):
         self.propagating = False
+        self.full_run_button.setEnabled(True)
         self.forward_run_button.setEnabled(True)
         self.backward_run_button.setEnabled(True)
         self.clear_mem_button.setEnabled(True)
@@ -721,10 +755,16 @@ class App(QWidget):
 
     def on_save_reference(self):
         # TODO: update permanent memory. Add if new, replace if already existed
+        if self.interaction is not None:
+            self.on_commit()
         current_image_torch, _ = image_to_torch(self.current_image)
         current_prob = index_numpy_to_one_hot_torch(self.current_mask, self.num_objects+1).cuda()
 
-        self.processor.put_to_permanent_memory(current_image_torch, current_prob[1:], self.cursur)
+        is_update = self.processor.put_to_permanent_memory(current_image_torch, current_prob[1:], self.cursur)
+
+        if is_update:
+            self.reference_ids.remove(self.cursur)
+            self.references_collection.remove_image(self.cursur)
 
         self.reference_ids.add(self.cursur)
         self.references_collection.add_image(self.cursur)
@@ -733,7 +773,8 @@ class App(QWidget):
             self.candidates_ids.remove(self.cursur)
 
             self.candidates_collection.remove_image(self.cursur)
-        # TODO: remove from candidates if was there
+
+        self.show_current_frame()
 
     def on_prev_frame(self):
         # self.tl_slide will trigger on setValue
@@ -979,7 +1020,7 @@ class App(QWidget):
             self.processor.update_config(self.config)
 
     def on_clear_memory(self):
-        self.processor.clear_memory()
+        self.processor.clear_memory(keep_permanent=True)
         torch.cuda.empty_cache()
         self.update_gpu_usage()
         self.update_memory_size()

@@ -19,12 +19,17 @@ class InferenceCore:
         self.clear_memory()
         self.all_labels = None
 
-    def clear_memory(self):
+    def clear_memory(self, keep_permanent=False):
         self.curr_ti = -1
         self.last_mem_ti = 0
         if not self.deep_update_sync:
             self.last_deep_update_ti = -self.deep_update_every
-        self.memory = MemoryManager(config=self.config)
+        if keep_permanent:
+            new_memory = self.memory.copy_perm_mem_only()
+        else:
+            new_memory = MemoryManager(config=self.config)
+            
+        self.memory = new_memory
 
     def update_config(self, config):
         self.mem_every = config['mem_every']
@@ -155,15 +160,18 @@ class InferenceCore:
         value, hidden = self.network.encode_value(image, f16, self.memory.get_hidden(), 
                                     pred_prob_with_bg[1:].unsqueeze(0), is_deep_update=False)
         
+        is_update = self.memory.frame_already_saved(ti)
+        print(ti, f"update={is_update}")
         if self.memory.frame_already_saved(ti):
-            # self.memory.update_permanent_memory(ti, )
-            # maybe delete and update?
-            # TODO: splice the memory, update existing one
-            pass
+            self.memory.update_permanent_memory(ti, key, shrinkage, value, selection=selection if self.enable_long_term else None)
         else:                       
             self.memory.add_memory(key, shrinkage, value, self.all_labels, 
-                                        selection=selection if self.enable_long_term else None, permanent=True)
+                                        selection=selection if self.enable_long_term else None, permanent=True, ti=ti)
             
+        print(self.memory.permanent_work_mem.key.shape)
+
+        return is_update
+    
     @property
     def permanent_memory_frames(self):
-        return list(self.memory.frame_id_to_mem_idx.keys())
+        return list(self.memory.frame_id_to_permanent_mem_idx.keys())

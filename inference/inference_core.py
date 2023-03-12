@@ -178,6 +178,9 @@ class InferenceCore:
 
         return is_update
     
+    def remove_from_permanent_memory(self, frame_idx):
+        self.memory.remove_from_permanent_memory(frame_idx)
+    
     @property
     def permanent_memory_frames(self):
         return list(self.memory.frame_id_to_permanent_mem_idx.keys())

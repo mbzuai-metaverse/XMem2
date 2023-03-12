@@ -318,10 +318,10 @@ class App(QWidget):
 
         chosen_figures_area = QVBoxLayout(self.references_tab)
         chosen_figures_area.addWidget(QLabel("SAVED REFERENCES IN PERMANENT MEMORY"))
-        self.references_collection = ImageLinkCollection(self.scroll_to, self.load_current_image_thumbnail)
+        self.references_collection = ImageLinkCollection(self.scroll_to, self.load_current_image_thumbnail, delete_image=self.on_remove_reference, name='Reference frames')
         chosen_figures_area.addWidget(self.references_collection)
         
-        self.candidates_collection = ImageLinkCollection(self.scroll_to, self.load_current_image_thumbnail)
+        self.candidates_collection = ImageLinkCollection(self.scroll_to, self.load_current_image_thumbnail, name='Candidate frames')
         chosen_figures_area.addWidget(QLabel("ANNOTATION CANDIDATES"))
         chosen_figures_area.addWidget(self.candidates_collection)
 
@@ -330,7 +330,7 @@ class App(QWidget):
         draw_area.addLayout(tabs_layout, 1)
 
         candidates_area = QVBoxLayout()
-        self.candidates_k_slider = NamedSlider("k", 1, 10, 1, default=5)
+        self.candidates_k_slider = NamedSlider("k", 1, 20, 1, default=5)
         self.candidates_alpha_slider = NamedSlider("α", 0, 100, 1, default=50, multiplier=0.01, min_text='Frames', max_text='Masks')
         candidates_area.addWidget(QLabel("Candidates calculation hyperparameters"))
         candidates_area.addWidget(self.candidates_k_slider)
@@ -512,8 +512,17 @@ class App(QWidget):
         self.main_canvas.setPixmap(QPixmap(qImg.scaled(self.main_canvas.size(),
                 Qt.KeepAspectRatio, Qt.FastTransformation)))
         
-    def load_current_image_thumbnail(self, size=128):
-        curr_pixmap = self.main_canvas.pixmap()
+    def load_current_image_thumbnail(self, *args, size=128):
+        # all this instead of self.main_canvas.pixmap() because it contains the brush as well
+        viz = get_visualization(self.viz_mode, self.current_image, self.current_mask, 
+                            self.overlay_layer, self.vis_target_objects)
+        
+        height, width, channel = viz.shape
+        bytesPerLine = 3 * width
+        qImg = QImage(viz.data, width, height, bytesPerLine, QImage.Format_RGB888)
+        curr_pixmap = QPixmap(qImg.scaled(self.main_canvas.size(),
+                Qt.KeepAspectRatio, Qt.FastTransformation))
+
         curr_size = curr_pixmap.size()
         h = curr_size.height()
         w = curr_size.width()
@@ -544,11 +553,11 @@ class App(QWidget):
 
     def style_editing_reference(self):
         self.save_reference_button.setText("Update reference")
-        self.save_reference_button.setStyleSheet('QPushButton {background-color: #E4A11B; font-size: bold; }')
+        self.save_reference_button.setStyleSheet('QPushButton {background-color: #E4A11B; font-weight: bold; }')
 
     def style_new_reference(self):
         self.save_reference_button.setText("Save reference")
-        self.save_reference_button.setStyleSheet('QPushButton {background-color: #14A44D; font-size: bold;}')
+        self.save_reference_button.setStyleSheet('QPushButton {background-color: #14A44D; font-weight: bold;}')
 
     def pixel_pos_to_image_pos(self, x, y):
         # Un-scale and un-pad the label coordinates into image coordinates
@@ -650,6 +659,8 @@ class App(QWidget):
     def general_propagation_callback(self, propagation_type: str):
         if not self.confirm_ready_for_propagation():
             return
+        
+        self.tabs.setCurrentIndex(0)
         if propagation_type == 'full':
             self.on_full_propagation()
         elif propagation_type == 'forward':
@@ -811,9 +822,14 @@ class App(QWidget):
         
         if self.cursur in self.candidates_ids:
             self.candidates_ids.remove(self.cursur)
-
             self.candidates_collection.remove_image(self.cursur)
 
+        self.show_current_frame()
+        self.tabs.setCurrentIndex(1)
+
+    def on_remove_reference(self, img_idx):
+        self.processor.remove_from_permanent_memory(img_idx)
+        self.reference_ids.remove(img_idx)
         self.show_current_frame()
 
     def on_prev_frame(self):

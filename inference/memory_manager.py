@@ -392,7 +392,12 @@ class MemoryManager:
     
     def copy_perm_mem_only(self):
         new_mem = MemoryManager(config=self.config)
+
+        if self.permanent_work_mem.key is None or self.permanent_work_mem.key.size(-1) == 0:
+            return new_mem
+        
         new_mem.permanent_work_mem = self.permanent_work_mem
+        new_mem.frame_id_to_permanent_mem_idx = self.frame_id_to_permanent_mem_idx
         
         key0 = self.permanent_work_mem.key[..., 0:0]
         value0 = self.permanent_work_mem.value[0][..., 0:0]
@@ -407,9 +412,16 @@ class MemoryManager:
         key_shape = self.permanent_work_mem.key.shape
         sample_key = self.permanent_work_mem.key[..., 0:self.HW].view(*key_shape[:-1], self.H, self.W)
         new_mem.create_hidden_state(len(self.permanent_work_mem.all_objects), sample_key)
-        
+
         new_mem.temporary_work_mem.obj_groups = self.temporary_work_mem.obj_groups
         new_mem.temporary_work_mem.all_objects = self.temporary_work_mem.all_objects
+
+
+        new_mem.CK = self.CK
+        new_mem.CV = self.CV
+        new_mem.H = self.H
+        new_mem.W = self.W
+        new_mem.HW = self.HW
 
         return new_mem
 

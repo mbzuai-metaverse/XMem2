@@ -4,7 +4,9 @@ import time
 import traceback, sys
 
 from PyQt5.QtCore import Qt, QRunnable, pyqtSlot, pyqtSignal, QObject, QPoint, QRect, QSize
-from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QProgressBar, QDialog, QWidget, QProgressDialog, QScrollArea, QLayout, QLayoutItem, QStyle, QSizePolicy, QSpacerItem, QFrame, QPushButton, QSlider)
+from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QProgressBar, QDialog, QWidget,
+                             QProgressDialog, QScrollArea, QLayout, QLayoutItem, QStyle, QSizePolicy, QSpacerItem,
+                                QFrame, QPushButton, QSlider, QMessageBox)
 
 class WorkerSignals(QObject):
     '''
@@ -324,21 +326,37 @@ class ClickableLabel(QLabel):
 
 
 class ImageWithCaption(QWidget):
-    def __init__(self, img: QLabel, caption: str, *args, **kwargs) -> None:
+    def __init__(self, img: QLabel, caption: str, on_close: callable = None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         
         self.layout = QVBoxLayout(self)
         self.text_label = QLabel(caption)
-        self.layout.addWidget(self.text_label)
+        self.close_btn = QPushButton("x")
+        self.close_btn.setMaximumSize(35, 35)
+        self.close_btn.setMinimumSize(35, 35)
+        self.close_btn.setStyleSheet('QPushButton {background-color: #DC4C64; font-weight: bold; }')
+        if on_close is not None:
+            self.close_btn.clicked.connect(on_close)
+
+        self.top_tab_layout = QHBoxLayout()
+        self.top_tab_layout.addWidget(self.text_label)
+        self.top_tab_layout.addWidget(self.close_btn)
+        self.top_tab_layout.setAlignment(self.text_label, Qt.AlignmentFlag.AlignCenter)
+        self.top_tab_layout.setAlignment(self.close_btn, Qt.AlignmentFlag.AlignRight)
+        
+        self.layout.addLayout(self.top_tab_layout)
+
         self.layout.addWidget(img)
 
         self.layout.setAlignment(self.text_label, Qt.AlignmentFlag.AlignHCenter)
+
 class ImageLinkCollection(QWidget):
-    def __init__(self, on_click: callable, load_image: callable, *args, **kwargs) -> None:
+    def __init__(self, on_click: callable, load_image: callable, delete_image: callable = None, name: str = None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.on_click = on_click
         self.load_image = load_image
-
+        self.delete_image = delete_image
+        self.name = name
         # scrollable_area = QScrollArea(self)
         # frame = QFrame(scrollable_area)
 
@@ -348,7 +366,7 @@ class ImageLinkCollection(QWidget):
 
 
     def add_image(self, img_idx):
-        image = self.load_image()
+        image = self.load_image(img_idx)
 
         # TODO: add frame number
         # layout = QVBoxLayout()
@@ -358,7 +376,7 @@ class ImageLinkCollection(QWidget):
 
         img_widget.clicked.connect(partial(self.on_click, img_idx))
 
-        wrapper = ImageWithCaption(img_widget, f"Frame {img_idx:>6d}")
+        wrapper = ImageWithCaption(img_widget, f"Frame {img_idx:>6d}", on_close=partial(self.on_close_click, img_idx))
         # layout.addWidget(img_widget)
 
         self.img_widgets_lookup[img_idx] = wrapper
@@ -368,6 +386,16 @@ class ImageLinkCollection(QWidget):
         img_widget = self.img_widgets_lookup.pop(img_idx)
         self.flow_layout.removeWidget(img_widget)
 
-    # def set_active(img_idx):
-    #     # TODO: make red border on selected, remove on others
-    #     pass
+    def on_close_click(self, img_idx):
+        qm = QMessageBox()
+        question = f"Delete Frame {img_idx}"
+        if self.name is not None:
+            question += f' from {self.name}'
+        
+        question += '?'
+        ret = qm.question(self, 'Confirm deletion', question, qm.Yes | qm.No)
+
+        if ret == qm.Yes:
+            self.remove_image(img_idx)
+            if self.delete_image is not None:
+                self.delete_image(img_idx)

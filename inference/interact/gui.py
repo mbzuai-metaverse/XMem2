@@ -16,6 +16,7 @@ import functools
 
 import os
 from pathlib import Path
+import re
 from time import perf_counter
 import cv2
 
@@ -214,6 +215,9 @@ class App(QWidget):
         # import mask/layer
         self.import_mask_button = QPushButton('Import mask')
         self.import_mask_button.clicked.connect(self.on_import_mask)
+
+        self.import_all_masks_button = QPushButton('Import ALL masks')
+        self.import_all_masks_button.clicked.connect(self.on_import_all_masks)
         self.import_layer_button = QPushButton('Import layer')
         self.import_layer_button.clicked.connect(self.on_import_layer)
 
@@ -314,6 +318,7 @@ class App(QWidget):
         import_area = QHBoxLayout()
         import_area.setAlignment(Qt.AlignTop)
         import_area.addWidget(self.import_mask_button)
+        import_area.addWidget(self.import_all_masks_button)
         import_area.addWidget(self.import_layer_button)
         minimap_area.addLayout(import_area)
 
@@ -1085,10 +1090,44 @@ class App(QWidget):
             self.last_opened_directory = str(Path(file_name).parent)
         return file_name
 
-    def on_import_mask(self):
-        file_name = self._open_file('Mask')
-        if len(file_name) == 0:
-            return
+    def on_import_all_masks(self):
+        dir_path = QFileDialog.getExistingDirectory()
+        if dir_path:
+            self.last_opened_directory = dir_path
+            
+            all_correct = True
+            frame_ids = []
+            incorrect_files = []
+            pattern = re.compile(r'([0-9]+)')
+            files_paths = sorted(Path(dir_path).iterdir())
+            for p_f in files_paths:
+                match = pattern.search(p_f.name)
+                if match:
+                    frame_id = int(match.string[match.start():match.end()])
+                    frame_ids.append(frame_id)
+                else:
+                    all_correct = False
+                    incorrect_files.apend(p_f.name)
+                    
+            
+            if not all_correct or frame_ids != sorted(frame_ids):
+                qm = QErrorMessage(self)
+                qm.setWindowModality(Qt.WindowModality.WindowModal)
+                broken_file_names = '\n'.join(incorrect_files)
+                qm.showMessage(f"Files with incorrect names: {broken_file_names}")
+
+            else:
+                for i, p_f in zip(frame_ids, files_paths):
+                    self.scroll_to(i)
+                    self.on_import_mask(str(p_f))
+
+    def on_import_mask(self, mask_file_path=None):
+        if mask_file_path:
+            file_name = mask_file_path
+        else:
+            file_name = self._open_file('Mask')
+            if len(file_name) == 0:
+                return
 
         mask = self.res_man.read_external_image(file_name, size=(self.height, self.width), force_mask=True)
 
@@ -1117,6 +1156,7 @@ class App(QWidget):
                 self.current_mask = mask
                 self.show_current_frame()
                 self.save_current_mask()
+                self.on_save_reference()
 
     def on_import_layer(self):
         file_name = self._open_file('Layer')

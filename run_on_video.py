@@ -21,7 +21,7 @@ from util.tensor_util import compute_tensor_iou
 from inference.inference_core import InferenceCore
 from inference.data.video_reader import VideoReader
 from inference.data.mask_mapper import MaskMapper
-from inference.frame_selection.frame_selection import KNOWN_ANNOTATION_PREDICTORS
+# from inference.frame_selection.frame_selection import KNOWN_ANNOTATION_PREDICTORS
 from inference.frame_selection.frame_selection_utils import disparity_func, get_determenistic_augmentations
 
 
@@ -125,7 +125,7 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
     if only_predict_frames_to_annotate_and_quit > 0:
         assert frame_selector_func is not None
         chosen_annotation_candidate_frames = frame_selector_func(
-            loader, processor, print_progress=print_progress, how_many_frames=only_predict_frames_to_annotate_and_quit)
+            loader, processor, print_progress=print_progress, how_many_frames=only_predict_frames_to_annotate_and_quit, existing_masks_path=masks_out_path)
 
         return chosen_annotation_candidate_frames
 
@@ -298,10 +298,14 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
 
                 out_mask = mapper.remap_index_mask(out_mask)
                 out_img = Image.fromarray(out_mask)
+                if (info['img_transposed']):
+                    out_img = out_img.transpose(Image.ROTATE_270)
                 out_img = vid_reader.map_the_colors_back(out_img)
                 save_image(out_img, frame, vid_name, general_dir_path=config['masks_out_path'], sub_dir_name='masks', extension='.png')
 
                 if save_overlay:
+                    if (info['img_transposed']):
+                        original_img = original_img.transpose(Image.ROTATE_270)
                     overlaid_img = create_overlay(original_img, out_img, color_if_black_and_white=b_and_w_color)
                     save_image(overlaid_img, frame, vid_name, general_dir_path=config['masks_out_path'], sub_dir_name='overlay', extension='.jpg')
 
@@ -327,6 +331,7 @@ def run_on_video(
     frames_with_masks: Iterable[int] = (0, ),
     compute_iou=False,
     print_progress=True,
+    original_memory_mechanism=False,
     **kwargs
 ) -> pd.DataFrame:
     """
@@ -346,11 +351,13 @@ def run_on_video(
     Returns:
     stats (pd.Dataframe): a table containing every frame and the following information: IoU score with corresponding mask (if `compute_iou` is True)
     """
-
+    if(original_memory_mechanism==False):
+            print("Running inference with OUR METHOD")
     return _inference_on_video(
         imgs_in_path=imgs_in_path,
         masks_in_path=masks_in_path,
         masks_out_path=masks_out_path,
+        original_memory_mechanism=original_memory_mechanism,
         frames_with_masks=frames_with_masks,
         compute_uncertainty=False,
         compute_iou=compute_iou,
@@ -362,7 +369,8 @@ def run_on_video(
 
 def predict_annotation_candidates(
     imgs_in_path: Union[str, PathLike],
-    approach: str,
+    candidate_selection_function: callable,
+    masks_out_path: str,
     num_candidates: int = 1,
     print_progress=True,
 ) -> List[int]:
@@ -379,8 +387,6 @@ def predict_annotation_candidates(
     annotation_candidates (List[int]): A list of frames indices (0-based) chosen as annotation candidates, sorted by importance (most -> least). Always contains [0] - first frame - at index 0.
     """
 
-    candidate_selection_function = KNOWN_ANNOTATION_PREDICTORS[approach]
-
     assert num_candidates >= 1
 
     if num_candidates == 1:
@@ -389,7 +395,7 @@ def predict_annotation_candidates(
     return _inference_on_video(
         imgs_in_path=imgs_in_path,
         masks_in_path=imgs_in_path,  # Ignored
-        masks_out_path=None,  # Ignored
+        masks_out_path=masks_out_path,  # Ignored
         frames_with_masks=[0],  # Ignored
         compute_uncertainty=False,
         compute_iou=False,

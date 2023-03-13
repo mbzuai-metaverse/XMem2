@@ -14,7 +14,7 @@ from util.metrics import batched_f_measure, batched_jaccard
 from p_tqdm import p_umap
 
 from inference.frame_selection.frame_selection import KNOWN_ANNOTATION_PREDICTORS
-from inference.run_on_video import predict_annotation_candidates, run_on_video
+from run_on_video import predict_annotation_candidates, run_on_video
 
 # ---------------BEGIN Inference and visualization utils --------------------------
 

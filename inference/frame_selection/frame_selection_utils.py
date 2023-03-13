@@ -1,11 +1,42 @@
 from functools import partial
 from pathlib import Path
 
+from tqdm import tqdm
 from sklearn.cluster import KMeans
 import pandas as pd
 import torch
 import torchvision.transforms.functional as FT
 from torchvision.transforms import ColorJitter, Grayscale, RandomPosterize, RandomAdjustSharpness, ToTensor, RandomAffine
+
+
+# 
+def extract_keys(dataloder, processor, print_progress=False):
+    frame_keys = []
+    shrinkages = []
+    selections = []
+    device = None
+    with torch.no_grad():  # just in case
+        key_sum = None
+
+        for ti, data in enumerate(tqdm(dataloder, disable=not print_progress, desc='Calculating key features')):
+            rgb = data['rgb'].cuda()[0]
+            key, shrinkage, selection = processor.encode_frame_key(rgb)
+
+            if key_sum is None:
+                device = key.device
+                # to avoid possible overflow
+                key_sum = torch.zeros_like(
+                    key, device=device, dtype=torch.float64)
+
+            key_sum += key.type(torch.float64)
+
+            frame_keys.append(key.cpu())
+            shrinkages.append(shrinkage.cpu())
+            selections.append(selection.cpu())
+
+        num_frames = ti + 1  # 0 after 1 iteration, 1 after 2, etc.
+
+        return frame_keys, shrinkages, selections, device, num_frames, key_sum
 
 
 def select_n_frame_candidates(preds_df: pd.DataFrame, uncertainty_name: str, n=5):

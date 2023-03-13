@@ -60,15 +60,23 @@ class VideoReader(Dataset):
         data = {}
         info['frame'] = frame
         info['save'] = (self.to_save is None) or (frame[:-4] in self.to_save)
+        info['img_transposed'] = False
+        info['masks_transposed'] = False
 
         im_path = path.join(self.image_dir, frame)
         img = Image.open(im_path).convert('RGB')
+        if(img.height > img.width): 
+            img = img.transpose(Image.ROTATE_90)
+            info['img_transposed'] = True
 
         if self.image_dir == self.size_dir:
             shape = np.array(img).shape[:2]
         else:
             size_path = path.join(self.size_dir, frame)
             size_im = Image.open(size_path).convert('RGB')
+            if(size_im.height > size_im.width): 
+                size_im = size_im.transpose(Image.ROTATE_90)
+                info['img_transposed'] = True
             shape = np.array(size_im).shape[:2]
 
         gt_path = path.join(self.mask_dir, frame[:-4]+'.png')
@@ -81,6 +89,9 @@ class VideoReader(Dataset):
         load_mask = self.use_all_masks or (gt_path == self.first_gt_path)
         if load_mask and path.exists(gt_path):
             mask = Image.open(gt_path).convert('P')
+            if(mask.height > mask.width): 
+                mask = mask.transpose(Image.ROTATE_90)
+                info['masks_transposed'] = True
             mask = np.array(mask, dtype=np.uint8)
             data['mask'] = mask
 

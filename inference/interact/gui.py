@@ -140,9 +140,9 @@ class App(QWidget):
         self.combo.currentTextChanged.connect(self.set_viz_mode)
 
         self.save_visualization_checkbox = QCheckBox(self)
+        self.save_visualization_checkbox.setChecked(True)
         self.save_visualization_checkbox.toggled.connect(self.on_save_visualization_toggle)
-        self.save_visualization_checkbox.setChecked(False)
-        self.save_visualization = False
+        self.save_visualization = True
 
         # Radio buttons for type of interactions
         self.curr_interaction = 'Click'

@@ -1,5 +1,6 @@
 import os
 from os import path
+from pathlib import Path
 import shutil
 import collections
 
@@ -51,7 +52,11 @@ class ResourceManager:
         # create temporary workspace if not specified
         if self.workspace is None:
             if images is not None:
-                basename = path.basename(images)
+                p_images = Path(images)
+                if p_images.name == 'JPEGImages':
+                    basename = p_images.parent.name
+                else:
+                    basename = p_images.name
             elif video is not None:
                 basename = path.basename(video)[:-4]
             else:

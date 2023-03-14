@@ -709,13 +709,14 @@ class App(QWidget):
     def on_propagation(self):
         # start to propagate
         self.load_current_torch_image_mask()
-        # TODO: put into permanent memory
-        # TODO: debug why quality so bad
         self.show_current_frame(fast=True)
 
         self.console_push_text('Propagation started.')
+        is_mask = self.cursur in self.reference_ids
         msk = self.current_prob[1:] if self.cursur in self.reference_ids else None
-        self.current_prob, key = self.processor.step(self.current_image_torch, msk, return_key=True)
+        current_prob, key = self.processor.step(self.current_image_torch, msk, return_key=True)
+        if not is_mask:
+            self.current_prob = current_prob
         self.res_man.add_key_with_mask(self.cursur, key, self.current_prob)
         
         self.current_mask = torch_prob_to_numpy_mask(self.current_prob)
@@ -731,14 +732,16 @@ class App(QWidget):
 
             self.load_current_image_mask(no_mask=True)
             self.load_current_torch_image_mask(no_mask=True)
-
+            is_mask = self.cursur in self.reference_ids
             msk = self.current_prob[1:] if self.cursur in self.reference_ids else None
-            self.current_prob, key = self.processor.step(self.current_image_torch, msk, return_key=True)
+            current_prob, key = self.processor.step(self.current_image_torch, msk, return_key=True)
             self.res_man.add_key_with_mask(self.cursur, key, self.current_prob)
 
-            self.current_mask = torch_prob_to_numpy_mask(self.current_prob)
-
-            self.save_current_mask()
+            if not is_mask:
+                self.current_prob = current_prob
+                self.current_mask = torch_prob_to_numpy_mask(self.current_prob)
+                self.save_current_mask()
+                
             self.show_current_frame(fast=True)
 
             self.update_memory_size()

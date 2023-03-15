@@ -717,7 +717,7 @@ class App(QWidget):
         current_prob, key = self.processor.step(self.current_image_torch, msk, return_key=True)
         if not is_mask:
             self.current_prob = current_prob
-        self.res_man.add_key_with_mask(self.cursur, key, self.current_prob)
+        self.res_man.add_key_with_mask(self.cursur, key, self.current_prob[1:])
         
         self.current_mask = torch_prob_to_numpy_mask(self.current_prob)
         # clear
@@ -735,7 +735,7 @@ class App(QWidget):
             is_mask = self.cursur in self.reference_ids
             msk = self.current_prob[1:] if self.cursur in self.reference_ids else None
             current_prob, key = self.processor.step(self.current_image_torch, msk, return_key=True)
-            self.res_man.add_key_with_mask(self.cursur, key, self.current_prob)
+            self.res_man.add_key_with_mask(self.cursur, key, self.current_prob[1:])
 
             if not is_mask:
                 self.current_prob = current_prob
@@ -797,7 +797,7 @@ class App(QWidget):
         k = self.candidates_k_slider.value()
         alpha = self.candidates_alpha_slider.value()
         candidate_progress = QProgressDialog("Selecting candidates", None, 0, k, self, Qt.WindowFlags(Qt.WindowType.Dialog | ~Qt.WindowCloseButtonHint))
-        worker = Worker(select_next_candidates, self.res_man.keys, self.res_man.small_masks, k, self.reference_ids, print_progress=False, alpha=alpha, min_mask_presence_px=9) # Any other args, kwargs are passed to the run function
+        worker = Worker(select_next_candidates, self.res_man.keys, self.res_man.small_masks, k, self.reference_ids, print_progress=False, alpha=alpha, min_mask_presence_px=9, h=self.res_man.key_h, w=self.res_man.key_w) # Any other args, kwargs are passed to the run function
         worker.signals.result.connect(_update_candidates)
         worker.signals.progress.connect(_update_progress)
 

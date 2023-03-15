@@ -109,9 +109,11 @@ class ResourceManager:
         self.visualization_init = False
 
         self._resize = None
-        self._small_masks = None
+        self._masks = None
         self._keys = None
         self._keys_processed = np.zeros(self.length, dtype=bool)
+        self.key_h = None
+        self.key_w = None
 
     def _extract_frames(self, video):
         cap = cv2.VideoCapture(video)
@@ -154,17 +156,21 @@ class ResourceManager:
     def add_key_with_mask(self, ti, key, mask):
         if self._keys is None:
             c, h, w = key.squeeze().shape
-            c_mask = mask.shape[0]
+            if self.key_h is None:
+                self.key_h = h
+            if self.key_w is None:
+                self.key_w = w
+            c_mask, h_mask, w_mask = mask.shape
             self._keys = torch.empty((self.length, c, h, w), dtype=key.dtype, device=key.device)
-            self._small_masks = torch.empty((self.length, c_mask, h, w), dtype=mask.dtype, device=key.device)
-            self._resize = Resize((h, w), interpolation=InterpolationMode.NEAREST)
+            self._masks = torch.empty((self.length, c_mask, h_mask, w_mask), dtype=mask.dtype, device=key.device)
+            # self._resize = Resize((h, w), interpolation=InterpolationMode.NEAREST)
         
         if not self._keys_processed[ti]:
             # keys don't change for the video, so we only save them once
             self._keys[ti] = key
             self._keys_processed[ti] = True
                 
-        self._small_masks[ti] = self._resize(mask)
+        self._masks[ti] = mask# self._resize(mask)
 
     def all_masks_present(self):
         return self._keys_processed.sum() == self.length
@@ -265,7 +271,7 @@ class ResourceManager:
     
     @property
     def small_masks(self):
-        return self._small_masks
+        return self._masks
 
     @property
     def keys(self):

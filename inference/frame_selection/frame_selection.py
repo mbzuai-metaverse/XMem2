@@ -10,6 +10,7 @@ import torchvision.transforms.functional as FT
 import numpy as np
 from tqdm import tqdm
 from inference.frame_selection.frame_selection_utils import extract_keys
+from torchvision.transforms import Resize, InterpolationMode
 
 from model.memory_util import get_similarity
 
@@ -96,15 +97,16 @@ def calculate_proposals_for_annotations_with_iterative_distance_cycle_MASKS(data
         return chosen_frames
 
 
-def select_next_candidates(keys: torch.Tensor, masks: List[torch.tensor], num_next_candidates: int, previously_chosen_candidates: List[int] = (0,), print_progress=False, alpha=1.0, min_mask_presence_px=9, device: torch.device = 'cuda:0', progress_callback=None, only_new_candidates=True):
+def select_next_candidates(keys: torch.Tensor, masks: List[torch.tensor], num_next_candidates: int, previously_chosen_candidates: List[int] = (0,), print_progress=False, alpha=1.0, min_mask_presence_px=9, device: torch.device = 'cuda:0', progress_callback=None, only_new_candidates=True, epsilon=1e-4, h=30, w=54):
     assert len(keys) == len(masks)
     assert len(keys) > 0
-    assert keys[0].shape[-2:] == masks[0].shape[-2:]
+    # assert keys[0].shape[-2:] == masks[0].shape[-2:]
     assert num_next_candidates > 0
     assert len(previously_chosen_candidates) > 0
     assert 0.0 <= alpha <= 1.0
     assert min_mask_presence_px >= 0
     assert len(previously_chosen_candidates) < len(keys)
+
 
     """
     Select candidate frames for annotation based on dissimilarity and cycle consistency.
@@ -138,6 +140,8 @@ def select_next_candidates(keys: torch.Tensor, masks: List[torch.tensor], num_ne
     ensures that the dissimilarity D(A->A)=0, while D(A->B)>0, and is larger the more different A and B are (pixel-wise).
 
     """
+    resize = Resize((h, w), interpolation=InterpolationMode.BILINEAR)
+
     with torch.no_grad():
         composite_keys = []
         keys = keys.squeeze()
@@ -146,12 +150,15 @@ def select_next_candidates(keys: torch.Tensor, masks: List[torch.tensor], num_ne
         masks_validity = np.full(N, True)
 
         for i, mask in enumerate(masks):
-            mask_size_px = (mask > 0).sum()
+            mask_size_px = (mask > epsilon).sum()
 
             if mask_size_px < min_mask_presence_px:
                 masks_validity[i] = False
                 composite_keys.append(None)
+                print(i, mask_size_px)
+                continue
 
+            mask = resize(mask)
             composite_key = keys[i] * mask.max(dim=0, keepdim=True).values # any object -> 1., background -> 0.. Keep 1 channel only
             composite_key = composite_key * alpha + keys[i] * (1 - alpha)
 
@@ -163,12 +170,12 @@ def select_next_candidates(keys: torch.Tensor, masks: List[torch.tensor], num_ne
         for i in tqdm(range(num_next_candidates), desc='Iteratively picking the most dissimilar frames', disable=not print_progress):
             candidate_dissimilarities = []
             for j in tqdm(range(N), desc='Computing similarity to chosen frames', disable=not print_progress):
-                qk = composite_keys[j].to(device)
 
                 if not masks_validity[j]:
                     # ignore this potential candidate
                     dissimilarity_min_across_all = 0
                 else:
+                    qk = composite_keys[j].to(device)
                     dissimilarities_across_mem_keys = []
                     for mem_key in chosen_candidate_keys:
                         mem_key = mem_key

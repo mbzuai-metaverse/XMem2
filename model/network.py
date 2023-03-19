@@ -26,8 +26,8 @@ class XMem(nn.Module):
         self.single_object = config.get('single_object', False)
         print(f'Single object mode: {self.single_object}')
 
-        self.key_encoder = KeyEncoder()
-        self.value_encoder = ValueEncoder(self.value_dim, self.hidden_dim, self.single_object)
+        self.key_encoder = KeyEncoder_effb7()
+        self.value_encoder = ValueEncoder_effb5(self.value_dim, self.hidden_dim, self.single_object)
 
         # Projection from f16 feature space to key/value space
         self.key_proj = KeyProjection(1024, self.key_dim)
@@ -310,16 +310,12 @@ class XMem_u2net(nn.Module):
 
     def forward(self, mode, *args, **kwargs):
         if mode == 'encode_key':
-            import pdb
-            pdb.set_trace()
             return self.encode_key(*args, **kwargs)
         elif mode == 'encode_value':
             return self.encode_value(*args, **kwargs)
         elif mode == 'read_memory':
             return self.read_memory(*args, **kwargs)
         elif mode == 'segment':
-            import pdb
-            pdb.set_trace()
             return self.segment(*args, **kwargs)
         else:
             raise NotImplementedError

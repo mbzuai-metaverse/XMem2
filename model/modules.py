@@ -13,6 +13,8 @@ The trailing number of a variable usually denote the stride
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision import models 
+from efficientnet_pytorch import EfficientNet
 
 from model.group_modules import *
 from model import resnet
@@ -247,6 +249,90 @@ class ValueEncoder_2(nn.Module):
 
         return g, h
  
+class ValueEncoder_effb5(nn.Module):
+    def __init__(self, value_dim, hidden_dim, single_object=False):
+        super().__init__()
+        
+        self.single_object = single_object
+        model = EfficientNet.from_pretrained('efficientnet-b5', in_channels=5)
+        
+        self._conv_stem = model._conv_stem
+        self._bn0 = model._bn0
+        self.mb_blocks_0 = model._blocks[0]
+        self.mb_blocks_1 = model._blocks[1]
+        self.mb_blocks_2 = model._blocks[2]
+        self.mb_blocks_3 = model._blocks[3]
+        self.mb_blocks_4 = model._blocks[4]
+        self.mb_blocks_5 = model._blocks[5]
+        self.mb_blocks_6 = model._blocks[6]
+        self.mb_blocks_7 = model._blocks[7]
+        self.mb_blocks_8 = model._blocks[8]
+        self.mb_blocks_9 = model._blocks[9]
+        self.mb_blocks_10 = model._blocks[10]
+        self.mb_blocks_11 = model._blocks[11]
+        self.mb_blocks_12 = model._blocks[12]
+        self.mb_blocks_13 = model._blocks[13]
+        self.mb_blocks_14 = model._blocks[14]
+        self.conv1 = nn.Conv2d(128, 256, 1) 
+
+        # self.conv1 = network.conv1
+        # self.bn1 = network.bn1
+        # self.relu = network.relu  # 1/2, 64
+        # self.maxpool = network.maxpool
+
+        # self.layer1 = network.layer1 # 1/4, 64
+        # self.layer2 = network.layer2 # 1/8, 128
+        # self.layer3 = network.layer3 # 1/16, 256
+
+        self.distributor = MainToGroupDistributor()
+        self.fuser = FeatureFusionBlock(1024, 256, value_dim, value_dim)
+        if hidden_dim > 0:
+            self.hidden_reinforce = HiddenReinforcer(value_dim, hidden_dim)
+        else:
+            self.hidden_reinforce = None
+
+    def forward(self, image, image_feat_f16, h, masks, others, is_deep_update=True):
+        # image_feat_f16 is the feature from the key encoder
+        if not self.single_object:
+            g = torch.stack([masks, others], 2)
+        else:
+            g = masks.unsqueeze(2)
+        g = self.distributor(image, g)
+
+        batch_size, num_objects = g.shape[:2]
+        g = g.flatten(start_dim=0, end_dim=1)
+
+        if (g.shape[1] == 4): 
+            shape = [*g.shape]
+            shape[1] = 1 
+            extra = torch.zeros(shape)
+            extra = extra.to("cuda")
+            g = torch.cat((g, extra), 1) 
+        g = self._conv_stem(g)
+        g = self._bn0(g)
+        g = self.mb_blocks_0(g)
+        g = self.mb_blocks_1(g)
+        g = self.mb_blocks_2(g)
+        g = self.mb_blocks_3(g)
+        g = self.mb_blocks_4(g)
+        g = self.mb_blocks_5(g)
+        g = self.mb_blocks_6(g)
+        g = self.mb_blocks_7(g)
+        g = self.mb_blocks_8(g)
+        g = self.mb_blocks_9(g)
+        g = self.mb_blocks_10(g)
+        g = self.mb_blocks_11(g)
+        g = self.mb_blocks_12(g)
+        g = self.mb_blocks_13(g)
+        g = self.mb_blocks_14(g) # 1/16, 128 channe;s
+        g = self.conv1(g) #from 128 to 256
+        g = g.view(batch_size, num_objects, *g.shape[1:])
+        g = self.fuser(image_feat_f16, g)
+
+        if is_deep_update and self.hidden_reinforce is not None:
+            h = self.hidden_reinforce(g, h)
+
+        return g, h
 
 
 class KeyEncoder(nn.Module):
@@ -273,7 +359,101 @@ class KeyEncoder(nn.Module):
 
         return f16, f8, f4
     
+class KeyEncoder_effb7(nn.Module):
+    def __init__(self):
+        super().__init__()
+        model = EfficientNet.from_pretrained('efficientnet-b7', in_channels=3).cuda()
 
+        self._conv_stem = model._conv_stem
+        self._bn0 = model._bn0
+        self.mb_blocks_0 = model._blocks[0]
+        self.mb_blocks_1 = model._blocks[1]
+        self.mb_blocks_2 = model._blocks[2]
+        self.mb_blocks_3 = model._blocks[3]
+        self.mb_blocks_4 = model._blocks[4]
+        self.mb_blocks_5 = model._blocks[5]
+        self.mb_blocks_6 = model._blocks[6]
+        self.mb_blocks_7 = model._blocks[7]
+        self.mb_blocks_8 = model._blocks[8]
+        self.mb_blocks_9 = model._blocks[9]
+        self.mb_blocks_10 = model._blocks[10] #1/4, 48 channels
+        self.mb_blocks_11 = model._blocks[11]
+        self.mb_blocks_12 = model._blocks[12]
+        self.mb_blocks_13 = model._blocks[13]
+        self.mb_blocks_14 = model._blocks[14]
+        self.mb_blocks_15 = model._blocks[15]
+        self.mb_blocks_16 = model._blocks[16]
+        self.mb_blocks_17 = model._blocks[17] #1/8, 80 channels
+        self.mb_blocks_18 = model._blocks[18]
+        self.mb_blocks_19 = model._blocks[19]
+        self.mb_blocks_20 = model._blocks[20]
+        self.mb_blocks_21 = model._blocks[21]
+        self.mb_blocks_22 = model._blocks[22]
+        self.mb_blocks_23 = model._blocks[23]
+        self.mb_blocks_24 = model._blocks[24]
+        self.mb_blocks_25 = model._blocks[25]
+        self.mb_blocks_26 = model._blocks[26]
+        self.mb_blocks_27 = model._blocks[27]
+        self.mb_blocks_28 = model._blocks[28]
+        self.mb_blocks_29 = model._blocks[29]
+        self.mb_blocks_30 = model._blocks[30]
+        self.mb_blocks_31 = model._blocks[31]
+        self.mb_blocks_32 = model._blocks[32]
+        self.mb_blocks_33 = model._blocks[33]
+        self.mb_blocks_34 = model._blocks[34]
+        self.mb_blocks_35 = model._blocks[35]
+        self.mb_blocks_36 = model._blocks[36]
+        self.mb_blocks_37 = model._blocks[37] #1/16, 224 channels
+        self.conv1 = nn.Conv2d(48, 256, 1) 
+        self.conv2 = nn.Conv2d(80, 512, 1) 
+        self.conv3 = nn.Conv2d(224, 1024, 1) 
+
+    def forward(self, f):
+        g = self._conv_stem(f)
+        g = self._bn0(g)
+        g = self.mb_blocks_0(g)
+        g = self.mb_blocks_1(g)
+        g = self.mb_blocks_2(g)
+        g = self.mb_blocks_3(g)
+        g = self.mb_blocks_4(g)
+        g = self.mb_blocks_5(g)
+        g = self.mb_blocks_6(g)
+        g = self.mb_blocks_7(g)
+        g = self.mb_blocks_8(g)
+        g = self.mb_blocks_9(g)
+        f4 = self.mb_blocks_10(g)  #1/4, 48 channels
+        g = self.mb_blocks_11(f4)
+        g = self.mb_blocks_12(g)
+        g = self.mb_blocks_13(g)
+        g = self.mb_blocks_14(g) 
+        g = self.mb_blocks_15(g)
+        g = self.mb_blocks_16(g)
+        f8 = self.mb_blocks_17(g) #1/8, 80 channels
+        g = self.mb_blocks_18(f8)
+        g = self.mb_blocks_19(g) 
+        g = self.mb_blocks_20(g)
+        g = self.mb_blocks_21(g)
+        g = self.mb_blocks_22(g)
+        g = self.mb_blocks_23(g)
+        g = self.mb_blocks_24(g) 
+        g = self.mb_blocks_25(g)
+        g = self.mb_blocks_26(g)
+        g = self.mb_blocks_27(g)
+        g = self.mb_blocks_28(g)
+        g = self.mb_blocks_29(g) 
+        g = self.mb_blocks_30(g)
+        g = self.mb_blocks_31(g)
+        g = self.mb_blocks_32(g)
+        g = self.mb_blocks_33(g)
+        g = self.mb_blocks_34(g) 
+        g = self.mb_blocks_35(g)
+        g = self.mb_blocks_36(g)
+        f16 = self.mb_blocks_37(g) #1/16, 224 channels
+        f4 = self.conv1(f4)
+        f8 = self.conv2(f8)
+        f16 = self.conv3(f16)
+        return f16, f8, f4
+    
 class KeyEncoder_2(nn.Module): #this is what ari needs to edit 
     def __init__(self, restore_path=""):
         super().__init__()

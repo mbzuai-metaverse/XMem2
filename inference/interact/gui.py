@@ -30,10 +30,10 @@ import torch
 from PyQt5.QtWidgets import (QWidget, QApplication, QComboBox, QCheckBox,
     QHBoxLayout, QLabel, QPushButton, QTextEdit, QSpinBox, QFileDialog,
     QPlainTextEdit, QVBoxLayout, QSizePolicy, QButtonGroup, QSlider, QShortcut, 
-    QRadioButton, QTabWidget, QDialog, QErrorMessage, QMessageBox)
+    QRadioButton, QTabWidget, QDialog, QErrorMessage, QMessageBox, QLineEdit)
 
-from PyQt5.QtGui import QPixmap, QKeySequence, QImage, QTextCursor, QIcon
-from PyQt5.QtCore import Qt, QTimer, QThreadPool
+from PyQt5.QtGui import QPixmap, QKeySequence, QImage, QTextCursor, QIcon, QRegExpValidator
+from PyQt5.QtCore import Qt, QTimer, QThreadPool, QRegExp
 
 from model.network import XMem
 
@@ -336,8 +336,14 @@ class App(QWidget):
         draw_area.addLayout(tabs_layout, 1)
 
         candidates_area = QVBoxLayout()
+        self.candidates_min_mask_size_edit = QLineEdit()
+        float_validator = QRegExpValidator(QRegExp(r"^(100(\.0+)?|[1-9]?\d(\.\d+)?|0(\.\d+)?)$"))
+        self.candidates_min_mask_size_edit.setValidator(float_validator)
+        self.candidates_min_mask_size_edit.setText("0.25")
         self.candidates_k_slider = NamedSlider("k", 1, 20, 1, default=5)
         self.candidates_alpha_slider = NamedSlider("α", 0, 100, 1, default=50, multiplier=0.01, min_text='Frames', max_text='Masks')
+        candidates_area.addWidget(QLabel("Min mask size, % of the total image size, 0-100"))
+        candidates_area.addWidget(self.candidates_min_mask_size_edit)
         candidates_area.addWidget(QLabel("Candidates calculation hyperparameters"))
         candidates_area.addWidget(self.candidates_k_slider)
         candidates_area.addWidget(self.candidates_alpha_slider)
@@ -714,10 +720,10 @@ class App(QWidget):
         self.console_push_text('Propagation started.')
         is_mask = self.cursur in self.reference_ids
         msk = self.current_prob[1:] if self.cursur in self.reference_ids else None
-        current_prob, key = self.processor.step(self.current_image_torch, msk, return_key=True)
+        current_prob, key, shrinkage, selection = self.processor.step(self.current_image_torch, msk, return_key_and_stuff=True)
         if not is_mask:
             self.current_prob = current_prob
-        self.res_man.add_key_with_mask(self.cursur, key, self.current_prob[1:])
+        self.res_man.add_key_and_stuff_with_mask(self.cursur, key, shrinkage, selection, self.current_prob[1:])
         
         self.current_mask = torch_prob_to_numpy_mask(self.current_prob)
         # clear
@@ -734,8 +740,8 @@ class App(QWidget):
             self.load_current_torch_image_mask(no_mask=True)
             is_mask = self.cursur in self.reference_ids
             msk = self.current_prob[1:] if self.cursur in self.reference_ids else None
-            current_prob, key = self.processor.step(self.current_image_torch, msk, return_key=True)
-            self.res_man.add_key_with_mask(self.cursur, key, self.current_prob[1:])
+            current_prob, key, shrinkage, selection = self.processor.step(self.current_image_torch, msk, return_key_and_stuff=True)
+            self.res_man.add_key_and_stuff_with_mask(self.cursur, key, shrinkage, selection, self.current_prob[1:])
 
             if not is_mask:
                 self.current_prob = current_prob
@@ -797,7 +803,8 @@ class App(QWidget):
         k = self.candidates_k_slider.value()
         alpha = self.candidates_alpha_slider.value()
         candidate_progress = QProgressDialog("Selecting candidates", None, 0, k, self, Qt.WindowFlags(Qt.WindowType.Dialog | ~Qt.WindowCloseButtonHint))
-        worker = Worker(select_next_candidates, self.res_man.keys, self.res_man.small_masks, k, self.reference_ids, print_progress=False, alpha=alpha, min_mask_presence_px=9, h=self.res_man.key_h, w=self.res_man.key_w) # Any other args, kwargs are passed to the run function
+        worker = Worker(select_next_candidates, self.res_man.keys, self.res_man.shrinkages, self.res_man.selections, self.res_man.small_masks, k, self.reference_ids, 
+                        print_progress=False, min_mask_presence_percent=float(self.candidates_min_mask_size_edit.text()), alpha=alpha, h=self.res_man.key_h, w=self.res_man.key_w) # Any other args, kwargs are passed to the run function
         worker.signals.result.connect(_update_candidates)
         worker.signals.progress.connect(_update_progress)
 

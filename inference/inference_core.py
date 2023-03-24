@@ -59,7 +59,7 @@ class InferenceCore:
                                                                          need_sk=True)
 
         return key, shrinkage, selection
-    def step(self, image, mask=None, valid_labels=None, end=False, manually_curated_masks=False, disable_memory_updates=False, do_not_add_mask_to_memory=False, return_key=False):
+    def step(self, image, mask=None, valid_labels=None, end=False, manually_curated_masks=False, disable_memory_updates=False, do_not_add_mask_to_memory=False, return_key_and_stuff=False):
         # For feedback:
         #   1. We run the model as usual
         #   2. We get feedback: 2 lists, one with good prediction indices, one with bad
@@ -88,7 +88,7 @@ class InferenceCore:
 
         key, shrinkage, selection, f16, f8, f4 = self.network.encode_key(image, 
                                                     need_ek=(self.enable_long_term or need_segment), 
-                                                    need_sk=is_mem_frame)
+                                                    need_sk=True)
         multi_scale_features = (f16, f8, f4)
 
         if disable_memory_updates:
@@ -146,8 +146,8 @@ class InferenceCore:
 
         res = unpad(pred_prob_with_bg, self.pad)
 
-        if return_key:
-            return res, key
+        if return_key_and_stuff:
+            return res, key, shrinkage, selection
         else:
             return res
 
@@ -167,14 +167,14 @@ class InferenceCore:
                                     pred_prob_with_bg[1:].unsqueeze(0), is_deep_update=False)
         
         is_update = self.memory.frame_already_saved(ti)
-        print(ti, f"update={is_update}")
+        # print(ti, f"update={is_update}")
         if self.memory.frame_already_saved(ti):
             self.memory.update_permanent_memory(ti, key, shrinkage, value, selection=selection if self.enable_long_term else None)
         else:                       
             self.memory.add_memory(key, shrinkage, value, self.all_labels, 
                                         selection=selection if self.enable_long_term else None, permanent=True, ti=ti)
             
-        print(self.memory.permanent_work_mem.key.shape)
+        # print(self.memory.permanent_work_mem.key.shape)
 
         return is_update
     

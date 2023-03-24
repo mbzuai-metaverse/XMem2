@@ -153,7 +153,7 @@ class ResourceManager:
                 cv2.imwrite(path.join(self.image_dir, image_name), frame)
         print('Done!')
 
-    def add_key_with_mask(self, ti, key, mask):
+    def add_key_and_stuff_with_mask(self, ti, key, shrinkage, selection, mask):
         if self._keys is None:
             c, h, w = key.squeeze().shape
             if self.key_h is None:
@@ -162,12 +162,16 @@ class ResourceManager:
                 self.key_w = w
             c_mask, h_mask, w_mask = mask.shape
             self._keys = torch.empty((self.length, c, h, w), dtype=key.dtype, device=key.device)
+            self._shrinkages = torch.empty((self.length, 1, h, w), dtype=key.dtype, device=key.device)
+            self._selections = torch.empty((self.length, c, h, w), dtype=key.dtype, device=key.device)
             self._masks = torch.empty((self.length, c_mask, h_mask, w_mask), dtype=mask.dtype, device=key.device)
             # self._resize = Resize((h, w), interpolation=InterpolationMode.NEAREST)
         
         if not self._keys_processed[ti]:
             # keys don't change for the video, so we only save them once
             self._keys[ti] = key
+            self._shrinkages[ti] = shrinkage
+            self._selections[ti] = selection
             self._keys_processed[ti] = True
                 
         self._masks[ti] = mask# self._resize(mask)
@@ -232,27 +236,21 @@ class ResourceManager:
                 image = np.where(image, 1, 0)  # 255 (or whatever) -> binarize
 
                 return image.astype('uint8')
+            elif image.mode == 'RGB':
+                image = image.convert('P', palette=self.palette)
+                tmp_image = np.array(image)
+                out_image = np.zeros_like(tmp_image)
+                for i, c in enumerate(np.unique(tmp_image)):
+                    if i == 0:
+                        continue
+                    out_image[tmp_image == c] = i  # palette indices into 0, 1, 2, ...
+                self.palette = image.getpalette()
+                return out_image
+                
             image = image.convert('P', palette=self.palette)  # saved without DAVIS palette, just number objects 0, 1, ...
             
         image = np.array(image)
         return image
-    
-    def replace_mask_with_external(self, ti, mask_path):
-        try:
-            image = Image.open(mask_path)
-            assert image.mode in ['L', 'P', 'RGB']
-
-            if image.mode == 'RGB':
-                if len(image.getcolors()) <= 2:
-                    image = image.convert('L')
-
-                image = image.convert('P')
-                image.putpalette(self.palette)
-                image.save(path.join(self.mask_dir, self.names[ti]+'.png'))
-
-        except (FileNotFoundError, AssertionError, ValueError):
-            raise ValueError(f"Invalid file: {mask_path}")
-
 
     def invalidate(self, ti):
         # the image buffer is never invalidated
@@ -277,3 +275,11 @@ class ResourceManager:
     def keys(self):
         return self._keys
         
+
+    @property
+    def shrinkages(self):
+        return self._shrinkages
+    
+    @property
+    def selections(self):
+        return self._selections

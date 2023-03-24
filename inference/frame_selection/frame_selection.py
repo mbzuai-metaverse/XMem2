@@ -97,14 +97,14 @@ def calculate_proposals_for_annotations_with_iterative_distance_cycle_MASKS(data
         return chosen_frames
 
 
-def select_next_candidates(keys: torch.Tensor, masks: List[torch.tensor], num_next_candidates: int, previously_chosen_candidates: List[int] = (0,), print_progress=False, alpha=1.0, min_mask_presence_px=9, device: torch.device = 'cuda:0', progress_callback=None, only_new_candidates=True, epsilon=1e-4, h=30, w=54):
+def select_next_candidates(keys: torch.Tensor, shrinkages, selections, masks: List[torch.tensor], num_next_candidates: int, previously_chosen_candidates: List[int] = (0,), print_progress=False, alpha=1.0, min_mask_presence_percent=0.25, device: torch.device = 'cuda:0', progress_callback=None, only_new_candidates=True, epsilon=0.5, h=30, w=54):
     assert len(keys) == len(masks)
     assert len(keys) > 0
     # assert keys[0].shape[-2:] == masks[0].shape[-2:]
     assert num_next_candidates > 0
     assert len(previously_chosen_candidates) > 0
     assert 0.0 <= alpha <= 1.0
-    assert min_mask_presence_px >= 0
+    assert min_mask_presence_percent >= 0
     assert len(previously_chosen_candidates) < len(keys)
 
 
@@ -140,7 +140,7 @@ def select_next_candidates(keys: torch.Tensor, masks: List[torch.tensor], num_ne
     ensures that the dissimilarity D(A->A)=0, while D(A->B)>0, and is larger the more different A and B are (pixel-wise).
 
     """
-    resize = Resize((h, w), interpolation=InterpolationMode.BILINEAR)
+    resize = Resize((h, w), interpolation=InterpolationMode.NEAREST)
 
     with torch.no_grad():
         composite_keys = []
@@ -149,21 +149,26 @@ def select_next_candidates(keys: torch.Tensor, masks: List[torch.tensor], num_ne
         h, w = keys[0].shape[1:3]  # removing batch dimension
         masks_validity = np.full(N, True)
 
+        invalid = 0
         for i, mask in enumerate(masks):
-            mask_size_px = (mask > epsilon).sum()
+            mask_3ch = mask if mask.ndim == 3 else mask.unsqueeze(0)
+            mask_bin = mask_3ch.max(dim=0).values
+            mask_size_px = (mask_bin > epsilon).sum()
+            print(f"{i:3d}", float(mask_size_px / mask_bin.numel() * 100))
 
-            if mask_size_px < min_mask_presence_px:
+            if mask_size_px / mask_bin.numel() < (min_mask_presence_percent / 100.0):  # percentages to ratio
                 masks_validity[i] = False
                 composite_keys.append(None)
-                print(i, mask_size_px)
+                invalid += 1
                 continue
 
             mask = resize(mask)
             composite_key = keys[i] * mask.max(dim=0, keepdim=True).values # any object -> 1., background -> 0.. Keep 1 channel only
             composite_key = composite_key * alpha + keys[i] * (1 - alpha)
 
-            composite_keys.append(composite_key.to(device))
-        
+            composite_keys.append(composite_key.to(dtype=keys[i].dtype, device=device))
+
+        print(f"INVALID: {invalid} / {len(masks)}")
         chosen_candidates = list(previously_chosen_candidates)
         chosen_candidate_keys = [composite_keys[i] for i in chosen_candidates]
 
@@ -175,28 +180,32 @@ def select_next_candidates(keys: torch.Tensor, masks: List[torch.tensor], num_ne
                     # ignore this potential candidate
                     dissimilarity_min_across_all = 0
                 else:
-                    qk = composite_keys[j].to(device)
-                    dissimilarities_across_mem_keys = []
-                    for mem_key in chosen_candidate_keys:
-                        mem_key = mem_key
+                    qk = composite_keys[j].to(device).unsqueeze(0)
+                    q_shrinkage = shrinkages[j].to(device).unsqueeze(0)
+                    q_selection = selections[j].to(device).unsqueeze(0)
 
-                        similarity_per_pixel =         get_similarity(mem_key, ms=None, qk=qk,      qe=None)
-                        reverse_similarity_per_pixel = get_similarity(qk,      ms=None, qk=mem_key, qe=None)
+                    dissimilarities_across_mem_keys = []
+                    for mem_idx, mem_key in zip(chosen_candidates, chosen_candidate_keys):
+                        mem_key = mem_key.unsqueeze(0)
+                        mem_shrinkage = shrinkages[mem_idx].to(device).unsqueeze(0)
+                        mem_selection = selections[mem_idx].to(device).unsqueeze(0)
+
+                        similarity_per_pixel =         get_similarity(mem_key, ms=mem_shrinkage, qk=qk,      qe=q_selection)
+                        reverse_similarity_per_pixel = get_similarity(qk,      ms=q_shrinkage, qk=mem_key, qe=mem_selection)
 
                         # mapping of pixels A -> B would be very similar to B -> A if the images are similar
                         # and very different if the images are different
-                        cycle_dissimilarity_per_pixel = (similarity_per_pixel - reverse_similarity_per_pixel)
+                        cycle_dissimilarity_per_pixel = (similarity_per_pixel - reverse_similarity_per_pixel).to(dtype=torch.float32)
                         
                         # Take non-negative mappings, normalize by tensor size
                         cycle_dissimilarity_score = F.relu(cycle_dissimilarity_per_pixel).sum() / cycle_dissimilarity_per_pixel.numel()
-
                         dissimilarities_across_mem_keys.append(cycle_dissimilarity_score)
 
                     # filtering our existing or very similar frames
                     # if the key has already been used or is very similar to at least one of the chosen candidates
                     # dissimilarity_min_across_all -> 0 (or close to)
                     dissimilarity_min_across_all = min(dissimilarities_across_mem_keys)
-                    
+
                 candidate_dissimilarities.append(dissimilarity_min_across_all)
 
             index = torch.argmax(torch.tensor(candidate_dissimilarities))

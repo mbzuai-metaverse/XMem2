@@ -1,5 +1,6 @@
 import os
 from os import PathLike, path
+from time import perf_counter
 from typing import Iterable, Literal, Union, List
 from collections import defaultdict
 from pathlib import Path
@@ -17,11 +18,11 @@ from PIL import Image
 
 from model.network import XMem
 from util.image_saver import create_overlay, save_image
-from util.tensor_util import compute_tensor_iou
+from util.tensor_util import compute_array_iou, compute_tensor_iou
 from inference.inference_core import InferenceCore
 from inference.data.video_reader import VideoReader
 from inference.data.mask_mapper import MaskMapper
-from inference.frame_selection.frame_selection import KNOWN_ANNOTATION_PREDICTORS
+# from inference.frame_selection.frame_selection import KNOWN_ANNOTATION_PREDICTORS
 from inference.frame_selection.frame_selection_utils import disparity_func, get_determenistic_augmentations
 
 
@@ -48,7 +49,7 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
                         overwrite_config: dict = None,
                         frame_selector_func: callable = None,
                         save_overlay=True,
-                        b_and_w_color=(255, 0, 0)):
+                        b_and_w_color=(255, 0, 0), measure_fps=False):
     torch.autograd.set_grad_enabled(False)
     frames_with_masks = set(frames_with_masks)
     config = {
@@ -125,13 +126,14 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
     if only_predict_frames_to_annotate_and_quit > 0:
         assert frame_selector_func is not None
         chosen_annotation_candidate_frames = frame_selector_func(
-            loader, processor, print_progress=print_progress, how_many_frames=only_predict_frames_to_annotate_and_quit)
+            loader, processor, print_progress=print_progress, how_many_frames=only_predict_frames_to_annotate_and_quit, existing_masks_path=masks_out_path)
 
         return chosen_annotation_candidate_frames
 
     frames_ = []
     masks_ = []
 
+    total_preloading_time = 0.0
     if original_memory_mechanism:
         # only the first frame goes into permanent memory originally
         frames_to_put_in_permanent_memory = [0]
@@ -158,7 +160,10 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
             msk = vid_reader.resize_mask(msk.unsqueeze(0))[0]
 
         processor.set_all_labels(list(mapper.remappings.values()))
+        a = perf_counter()
         processor.put_to_permanent_memory(rgb, msk)
+        b = perf_counter()
+        total_preloading_time += (b - a)
 
         if not first_mask_loaded:
             first_mask_loaded = True
@@ -187,6 +192,7 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
     if compute_uncertainty and uncertainty_name == 'bald':
         bald = BALD()
 
+    total_processing_time = 0.0
     for ti, data in enumerate(tqdm(loader, disable=not print_progress)):
         with torch.cuda.amp.autocast(enabled=True):
             rgb = data['rgb'].cuda()[0]
@@ -251,6 +257,7 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
                 do_not_add_mask_to_memory = msk is not None
             # Run the model on this frame
             # 2+ channels, classes+ and background
+            a = perf_counter()
             prob = processor.step(rgb, msk, labels, end=(ti == vid_length-1),
                                   manually_curated_masks=manually_curated_masks, do_not_add_mask_to_memory=do_not_add_mask_to_memory)
 
@@ -280,14 +287,16 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
             # Probability mask -> index mask
             out_mask = torch.argmax(prob, dim=0)
             out_mask = (out_mask.detach().cpu().numpy()).astype(np.uint8)
+            b = perf_counter()
+            total_processing_time += (b - a)
 
             if compute_iou:
                 # mask is [0, 1]
                 # gt   is [0, 255]
                 # both -> [False, True]
-                if gt is not None:
-                    iou = float(compute_tensor_iou(torch.tensor(
-                        out_mask).type(torch.bool), gt.type(torch.bool)))
+                if gt is not None and msk is None:
+                    # skipping frames
+                    iou = float(compute_array_iou(out_mask, gt))
                 else:
                     iou = -1
                 curr_stat['iou'] = iou
@@ -316,6 +325,13 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
                         np_path, f'{frame[:-4]}.hkl'), mode='w', compression='lzf')
 
             stats.append(curr_stat)
+
+    if measure_fps:
+        print(f"TOTAL PRELOADING TIME: {total_preloading_time:.4f}s")
+        print(f"TOTAL PROCESSING TIME: {total_processing_time:.4f}s")
+        print(f"TOTAL TIME: {total_preloading_time + total_processing_time:.4f}s")
+        print(f"TOTAL PROCESSING FPS: {len(loader) / total_processing_time:.4f}")
+        print(f"TOTAL FPS: {len(loader) / (total_preloading_time + total_processing_time):.4f}")
 
     return pd.DataFrame(stats)
 
@@ -362,9 +378,11 @@ def run_on_video(
 
 def predict_annotation_candidates(
     imgs_in_path: Union[str, PathLike],
-    approach: str,
+    candidate_selection_function: callable,
+    masks_in_path: Union[str, PathLike] = None,
     num_candidates: int = 1,
     print_progress=True,
+    **kwargs
 ) -> List[int]:
     """
     Args:
@@ -379,18 +397,23 @@ def predict_annotation_candidates(
     annotation_candidates (List[int]): A list of frames indices (0-based) chosen as annotation candidates, sorted by importance (most -> least). Always contains [0] - first frame - at index 0.
     """
 
-    candidate_selection_function = KNOWN_ANNOTATION_PREDICTORS[approach]
+    # candidate_selection_function = KNOWN_ANNOTATION_PREDICTORS[approach]
 
     assert num_candidates >= 1
 
     if num_candidates == 1:
         return [0]  # First frame is hard-coded to always be used
 
+    try:
+        masks_out_path = kwargs.pop('masks_out_path')
+    except KeyError:
+        masks_out_path = None
+
     return _inference_on_video(
         imgs_in_path=imgs_in_path,
-        masks_in_path=imgs_in_path,  # Ignored
-        masks_out_path=None,  # Ignored
-        frames_with_masks=[0],  # Ignored
+        masks_in_path=masks_in_path,  # Ignored
+        masks_out_path=masks_out_path,  # Used for some frame selectors
+        frames_with_masks=[0],
         compute_uncertainty=False,
         compute_iou=False,
         print_progress=print_progress,

@@ -154,7 +154,6 @@ def select_next_candidates(keys: torch.Tensor, shrinkages, selections, masks: Li
             mask_3ch = mask if mask.ndim == 3 else mask.unsqueeze(0)
             mask_bin = mask_3ch.max(dim=0).values
             mask_size_px = (mask_bin > epsilon).sum()
-            print(f"{i:3d}", float(mask_size_px / mask_bin.numel() * 100))
 
             if mask_size_px / mask_bin.numel() < (min_mask_presence_percent / 100.0):  # percentages to ratio
                 masks_validity[i] = False

@@ -677,6 +677,7 @@ class App(QWidget):
             self.on_backward_propagation()
     
     def on_full_propagation(self):
+        self.on_clear_memory()
         self.scroll_to(0)
         self.on_forward_propagation()
 

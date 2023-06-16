@@ -6,10 +6,10 @@ import pandas as pd
 import torch
 import torchvision.transforms.functional as FT
 from torchvision.transforms import ColorJitter, Grayscale, RandomPosterize, RandomAdjustSharpness, ToTensor, RandomAffine
+from tqdm import tqdm
 
 
-# 
-def extract_keys(dataloder, processor, print_progress=False):
+def extract_keys(dataloder, processor, print_progress=False, flatten=True, **kwargs):
     frame_keys = []
     shrinkages = []
     selections = []
@@ -29,9 +29,14 @@ def extract_keys(dataloder, processor, print_progress=False):
 
             key_sum += key.type(torch.float64)
 
-            frame_keys.append(key.flatten(start_dim=2).cpu())
-            shrinkages.append(shrinkage.flatten(start_dim=2).cpu())
-            selections.append(selection.flatten(start_dim=2).cpu())
+            if flatten:
+                key = key.flatten(start_dim=2)
+                shrinkage = shrinkage.flatten(start_dim=2)
+                selection = selection.flatten(start_dim=2)
+
+            frame_keys.append(key.cpu())
+            shrinkages.append(shrinkage.cpu())
+            selections.append(selection.cpu())
 
         num_frames = ti + 1  # 0 after 1 iteration, 1 after 2, etc.
 

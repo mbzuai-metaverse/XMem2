@@ -140,13 +140,13 @@ def select_next_candidates(keys: torch.Tensor, shrinkages, selections, masks: Li
     ensures that the dissimilarity D(A->A)=0, while D(A->B)>0, and is larger the more different A and B are (pixel-wise).
 
     """
-    resize = Resize((h, w), interpolation=InterpolationMode.NEAREST)
 
     with torch.no_grad():
         composite_keys = []
         keys = keys.squeeze()
         N = len(keys)
         h, w = keys[0].shape[1:3]  # removing batch dimension
+        resize = Resize((h, w), interpolation=InterpolationMode.NEAREST)
         masks_validity = np.full(N, True)
 
         invalid = 0
@@ -155,12 +155,24 @@ def select_next_candidates(keys: torch.Tensor, shrinkages, selections, masks: Li
             mask_bin = mask_3ch.max(dim=0).values
             mask_size_px = (mask_bin > epsilon).sum()
 
-            if mask_size_px / mask_bin.numel() < (min_mask_presence_percent / 100.0):  # percentages to ratio
-                masks_validity[i] = False
-                composite_keys.append(None)
-                invalid += 1
-                continue
+            ratio = mask_size_px / mask_bin.numel() * 100
+            if ratio < min_mask_presence_percent:  # percentages to ratio
+                if i not in previously_chosen_candidates:
+                    # if it's previously chosen, it's okay, we don't test for their validity
+                    # e.g. we select frame #J, because we predicted something for it
+                    # but in reality it's actually empty, so gt=0
+                    # so next iteration will break 
+                    masks_validity[i] = False
+                    composite_keys.append(None)
+                    invalid += 1
+                    
+                    continue
 
+                # if it's previously chosen, it's okay
+                # if i in previously_chosen_candidates:
+                    # print(f"{i} previous candidate would be invalid (ratio perc={ratio})")
+                    # raise ValueError(f"Given min_mask_presence_percent={min_mask_presence_percent}, even the previous candidates will be ignored. Reduce the value to avoid the error.")
+                
             mask = resize(mask)
             composite_key = keys[i] * mask.max(dim=0, keepdim=True).values # any object -> 1., background -> 0.. Keep 1 channel only
             composite_key = composite_key * alpha + keys[i] * (1 - alpha)
@@ -190,7 +202,7 @@ def select_next_candidates(keys: torch.Tensor, shrinkages, selections, masks: Li
                         mem_selection = selections[mem_idx].to(device).unsqueeze(0)
 
                         similarity_per_pixel =         get_similarity(mem_key, ms=mem_shrinkage, qk=qk,      qe=q_selection)
-                        reverse_similarity_per_pixel = get_similarity(qk,      ms=q_shrinkage, qk=mem_key, qe=mem_selection)
+                        reverse_similarity_per_pixel = get_similarity(qk,      ms=q_shrinkage,   qk=mem_key, qe=mem_selection)
 
                         # mapping of pixels A -> B would be very similar to B -> A if the images are similar
                         # and very different if the images are different

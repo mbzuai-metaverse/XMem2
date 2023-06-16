@@ -1,21 +1,25 @@
+from functools import partial
 import os
 from os import PathLike, path
+from tempfile import TemporaryDirectory
 from time import perf_counter
 from typing import Iterable, Literal, Union, List
 from collections import defaultdict
 from pathlib import Path
+from warnings import warn
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
-from torchvision.transforms import functional as FT
+from torchvision.transforms import functional as FT, ToTensor
 from torch.utils.data import DataLoader
 from baal.active.heuristics import BALD
 from scipy.stats import entropy
 from tqdm import tqdm
 from PIL import Image
 
+from inference.frame_selection.frame_selection import select_next_candidates
 from model.network import XMem
 from util.image_saver import create_overlay, save_image
 from util.tensor_util import compute_array_iou, compute_tensor_iou
@@ -23,7 +27,7 @@ from inference.inference_core import InferenceCore
 from inference.data.video_reader import VideoReader
 from inference.data.mask_mapper import MaskMapper
 # from inference.frame_selection.frame_selection import KNOWN_ANNOTATION_PREDICTORS
-from inference.frame_selection.frame_selection_utils import disparity_func, get_determenistic_augmentations
+from inference.frame_selection.frame_selection_utils import disparity_func, extract_keys, get_determenistic_augmentations
 
 
 def save_frames(dataset, frame_indices, output_folder):
@@ -384,6 +388,9 @@ def predict_annotation_candidates(
     print_progress=True,
     **kwargs
 ) -> List[int]:
+    
+    warn('predict_annotation_candidates is deprecated, used ', DeprecationWarning, stacklevel=2)
+
     """
     Args:
     imgs_in_path (Union[str, PathLike]): Path to the directory containing video frames in the following format: `frame_000000.png` .jpg works too.
@@ -421,3 +428,61 @@ def predict_annotation_candidates(
         only_predict_frames_to_annotate_and_quit=num_candidates,
         frame_selector_func=candidate_selection_function
     )
+
+def select_k_next_best_annotation_candidates(
+    imgs_in_path: Union[str, PathLike],
+    masks_in_path: Union[str, PathLike],
+    k: int = 5,
+    print_progress=True,
+    previously_chosen_candidates=[0],
+    **kwargs
+):
+    # extracting the keys and corresponding matrices 
+    keys, shrinkages, selections, *_ =  _inference_on_video(
+        imgs_in_path=imgs_in_path,
+        masks_in_path=masks_in_path,  # Ignored
+        masks_out_path=None,  # Used for some frame selectors
+        frames_with_masks=previously_chosen_candidates,
+        compute_uncertainty=False,
+        compute_iou=False,
+        print_progress=print_progress,
+        manually_curated_masks=False,
+        only_predict_frames_to_annotate_and_quit=True,  # exact number is ignored here
+        frame_selector_func=partial(extract_keys, flatten=False),
+        **kwargs
+    )
+
+    # running inference once to obtain masks
+    to_tensor = ToTensor()
+    with TemporaryDirectory() as d:
+        p_masks_out = Path(d)
+        _inference_on_video(
+            imgs_in_path=imgs_in_path,
+            masks_in_path=masks_in_path,  # Ignored
+            masks_out_path=p_masks_out,  # Used for some frame selectors
+            frames_with_masks=previously_chosen_candidates,
+            compute_uncertainty=False,
+            compute_iou=False,
+            print_progress=print_progress,
+            manually_curated_masks=False,
+            **kwargs
+        )
+
+        masks = [to_tensor(Image.open(p)) for p in sorted((p_masks_out / 'masks').iterdir())]
+
+    keys = torch.cat(keys)
+    shrinkages = torch.cat(shrinkages)
+    selections = torch.cat(selections)
+
+    # TODO: fix shapes
+    print(f"[xxx] Running with previously chosen candidates: {previously_chosen_candidates}")
+    min_mask_presence_percent = 0.25
+    try:
+        all_selected_frames = select_next_candidates(keys, shrinkages=shrinkages, selections=selections, masks=masks, num_next_candidates=k, previously_chosen_candidates=previously_chosen_candidates, print_progress=print_progress, alpha=0.5, only_new_candidates=False, min_mask_presence_percent=min_mask_presence_percent)
+    except ValueError:
+        print(f"INVALID in video {imgs_in_path}")
+        min_mask_presence_percent = 0.01
+        all_selected_frames = select_next_candidates(keys, shrinkages=shrinkages, selections=selections, masks=masks, num_next_candidates=k, previously_chosen_candidates=previously_chosen_candidates, print_progress=print_progress, alpha=0.5, only_new_candidates=False, min_mask_presence_percent=min_mask_presence_percent)
+        
+
+    return all_selected_frames

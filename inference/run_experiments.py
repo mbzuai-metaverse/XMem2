@@ -10,6 +10,7 @@ import torch
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 from PIL import Image
+from inference.frame_selection.frame_selection import uniformly_selected_frames
 from util.metrics import batched_f_measure, batched_jaccard
 from p_tqdm import p_umap
 
@@ -236,6 +237,28 @@ def run_inference_with_pre_chosen_frames(chosen_frames_csv_path: str, videos_inf
         # with open(f'output/AL_comparison_all_methods/ious_{video_name}_all_methods.json', 'wt') as f_out:
         #     json.dump(ious, f_out)
 
+def run_inference_with_uniform_frames(videos_info: Dict[str, Dict], output_path: str, **kwargs):
+    num_runs = len(videos_info)
+
+    i = 0
+    p_bar = tqdm(desc='Running inference comparing multiple different AL approaches', total=num_runs)
+
+    for video_name, info in videos_info.items():
+        frames = os.listdir(info['video_frames_path'])
+        chosen_frames = uniformly_selected_frames(frames, how_many_frames=info['num_annotation_candidates'])
+
+        video_frames_path = info['video_frames_path']
+        video_masks_path = info['video_masks_path']
+
+        output_masks_path = Path(output_path) / video_name
+        try:
+            stats = run_on_video(video_frames_path, video_masks_path, output_masks_path,
+                        frames_with_masks=chosen_frames, compute_iou=False, print_progress=False, **kwargs)
+        except ValueError as e:
+            print(f"[!!!] {e}")
+        p_bar.update()
+        i += 1
+
 
 def visualize_chosen_frames(video_name: str, num_total_frames: int, data: pd.Series, output_path: str):
     def _sort_index(series):
@@ -312,6 +335,8 @@ def compute_metrics_al(p_source_masks, p_preds, looped=True):
         }
 
         for p_method in p_video.iterdir():
+            if not p_method.is_dir():
+                continue
             method_name = p_method.name
             p_masks = p_method / 'masks'
             preds = _load_preds(p_masks, palette=first_mask, size=(w, h))
@@ -348,11 +373,14 @@ def compute_metrics_al(p_source_masks, p_preds, looped=True):
     results = pd.DataFrame.from_records(list_of_stats).dropna(axis='columns').set_index('video_name')
     return results
 
-def compute_metrics(p_source_masks, p_preds):
+def compute_metrics(p_source_masks, p_preds, pred_to_annot_names_lookup=None):
     list_of_stats = []
     # for p_pred_video in list(p_preds.iterdir()):
     def _proc(p_pred_video: Path):
         video_name = p_pred_video.name
+        if pred_to_annot_names_lookup is not None:
+            video_name = pred_to_annot_names_lookup[video_name]
+
         # if 'XMem' in str(p_pred_video):
         p_pred_video = Path(p_pred_video) / 'masks'
         p_gts = p_source_masks / video_name

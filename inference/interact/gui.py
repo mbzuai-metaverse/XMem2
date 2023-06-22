@@ -418,6 +418,7 @@ class App(QWidget):
         self.show_current_frame()
         self.show()
         self.style_new_reference()
+        self.load_existing_references()
 
         self.console_push_text('Initialized.')
         self.initialized = True
@@ -566,6 +567,12 @@ class App(QWidget):
     def style_new_reference(self):
         self.save_reference_button.setText("Save reference")
         self.save_reference_button.setStyleSheet('QPushButton {background-color: #14A44D; font-weight: bold;}')
+
+    def load_existing_references(self):
+        for i in self.res_man.references:
+            self.scroll_to(i)
+            self.on_save_reference()
+        self.scroll_to(0)
 
     def pixel_pos_to_image_pos(self, x, y):
         # Un-scale and un-pad the label coordinates into image coordinates
@@ -832,6 +839,7 @@ class App(QWidget):
 
         self.reference_ids.add(self.cursur)
         self.references_collection.add_image(self.cursur)
+        self.res_man.add_reference(self.cursur)
         
         if self.cursur in self.candidates_ids:
             self.candidates_ids.remove(self.cursur)
@@ -843,6 +851,8 @@ class App(QWidget):
     def on_remove_reference(self, img_idx):
         self.processor.remove_from_permanent_memory(img_idx)
         self.reference_ids.remove(img_idx)
+        self.res_man.remove_reference(self.cursur)
+
         self.show_current_frame()
 
     def on_prev_frame(self):
@@ -1159,7 +1169,7 @@ class App(QWidget):
         else:
             qm = QMessageBox(QMessageBox.Icon.Question, "Confirm mask replacement", "")
             question = f"Replace mask for current frame {self.cursur} with {Path(file_name).name}?"
-            ret = qm.question(self, 'Confirm mask replacemen', question, qm.Yes | qm.No)
+            ret = qm.question(self, 'Confirm mask replacement', question, qm.Yes | qm.No)
 
             if ret == qm.Yes:
                 self.console_push_text(f'Mask file {file_name} loaded.')

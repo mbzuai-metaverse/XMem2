@@ -1,3 +1,4 @@
+import json
 import os
 from os import path
 from pathlib import Path
@@ -53,7 +54,8 @@ class ResourceManager:
         if self.workspace is None:
             if images is not None:
                 p_images = Path(images)
-                if p_images.name == 'JPEGImages':
+                if p_images.name == 'JPEGImages' or (Path.cwd() / 'workspace') in p_images.parents:
+                    # take the name instead of actual images dir (second case checks for videos already in ./workspace )
                     basename = p_images.parent.name
                 else:
                     basename = p_images.name
@@ -66,6 +68,9 @@ class ResourceManager:
             self.workspace = path.join('./workspace', basename)
 
         print(f'Workspace is in: {self.workspace}')
+        self.workspace_info_file = path.join(self.workspace, 'info.json')
+        self.references = set()
+        self._try_load_references()
 
         # determine the location of input images
         need_decoding = False
@@ -178,6 +183,29 @@ class ResourceManager:
 
     def all_masks_present(self):
         return self._keys_processed.sum() == self.length
+    
+    def add_reference(self, frame_id: int):
+        self.references.add(frame_id)
+        self._save_references()
+
+    def remove_reference(self, frame_id: int):
+        self.references.remove(frame_id)
+        self._save_references()
+
+    def _save_references(self):
+        with open(self.workspace_info_file, 'wt') as f:
+            data = {'references': sorted(self.references)}
+
+            json.dump(data, f)
+
+    def _try_load_references(self):
+        try:
+            with open(self.workspace_info_file) as f:
+                data = json.load(f)
+                self.references = set(data['references'])
+        except Exception:
+            pass
+
 
     def save_mask(self, ti, mask):
         # mask should be uint8 H*W without channels

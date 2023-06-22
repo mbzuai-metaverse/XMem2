@@ -21,11 +21,14 @@ from time import perf_counter
 import cv2
 
 from inference.frame_selection.frame_selection import select_next_candidates
+from util.tensor_util import get_blob_coords
 # fix conflicts between qt5 and cv2
 os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH")
 
 import numpy as np
 import torch
+from PIL import Image
+from tqdm import tqdm
 
 from PyQt5.QtWidgets import (QWidget, QApplication, QComboBox, QCheckBox,
     QHBoxLayout, QLabel, QPushButton, QTextEdit, QSpinBox, QFileDialog,
@@ -45,6 +48,11 @@ from .interactive_utils import *
 from .interaction import *
 from .resource_manager import ResourceManager
 from .gui_utils import *
+
+import sys
+sys.path.insert(0, '../pips')
+from pips.inference import run_model, save_results, load_model
+from pips.utils.improc import resize_preserve_ratio
 
 
 class App(QWidget):
@@ -82,6 +90,8 @@ class App(QWidget):
         self.save_reference_button.clicked.connect(self.on_save_reference) 
         self.compute_candidates_button = QPushButton('Compute Annotation candidates')
         self.compute_candidates_button.clicked.connect(self.on_compute_candidates)
+        self.get_trajectory_button = QPushButton('Get trajectory')
+        self.get_trajectory_button.clicked.connect(self.on_get_trajectory)
 
         self.full_run_button = QPushButton('FULL Propagate')
         self.full_run_button.clicked.connect(partial(self.general_propagation_callback, propagation_type='full'))
@@ -348,6 +358,8 @@ class App(QWidget):
         candidates_area.addWidget(self.candidates_k_slider)
         candidates_area.addWidget(self.candidates_alpha_slider)
         candidates_area.addWidget(self.compute_candidates_button)
+        candidates_area.addWidget(self.get_trajectory_button)
+
         tabs_layout.addLayout(candidates_area)
 
         layout = QVBoxLayout()
@@ -786,6 +798,121 @@ class App(QWidget):
         qm.showMessage("Run propagation on all frames first!")
 
         return False
+    
+    def on_get_trajectory(self, pad=5):
+        print("Computing trajectories")
+        # TODO: Get good masks -> find the largest size -> crop all to that size -> put into PIPS -> get trajectory -> draw back (save cropped coords to overlay back onto the original image)
+
+        centers = []
+        imgs = []
+        masks = []
+        max_width = 0
+        max_height = 0
+        img_h, img_w = None, None
+        for ti in tqdm(range(self.num_frames)):
+            mask = self.res_man.get_mask(ti)
+            img = self.res_man.get_image(ti)
+
+            imgs.append(img)
+            masks.append(mask)
+
+            assert img.shape[0:2] == mask.shape[0:2]
+            img_h, img_w = img.shape[0:2]
+            # print(img.shape)
+            try:
+                x_min, x_max, y_min, y_max = get_blob_coords(mask)
+            except ValueError:  # occluded, no mask
+                centers.append(centers[-1])
+                # Repeat last known frame
+                continue
+
+            # because x_max and y_max are INCLUSIVE
+            width = x_max - x_min + 1
+            height = y_max - y_min + 1
+
+            center_x = round(x_min + width/2)
+            center_y = round(y_min + height/2)
+
+            if height > max_height:
+                max_height = height
+            if width > max_width:
+                max_width = width
+
+            centers.append((center_x, center_y))
+
+        p_out = Path('output/TEST_cropped_segmentation')
+        p_out_imgs = p_out / 'frames'
+        p_out_masks = p_out / 'masks'
+        p_out_imgs.mkdir(parents=True, exist_ok=True)
+        p_out_masks.mkdir(parents=True, exist_ok=True)
+        tensors = []
+        left_top_coords = []
+        for ti in tqdm(range(self.num_frames)):
+            center_x, center_y = centers[ti]
+            img = imgs[ti]
+            mask = masks[ti]
+            h, w = img.shape[:2]
+
+            fixed_size_img = np.zeros((max_height + 2*pad, max_width + 2*pad, 3), dtype=img.dtype)
+            fixed_size_mask = fixed_size_img.copy()[..., 0]
+
+            min_x = max(int(center_x - max_width/2) - pad, 0)
+            max_x = min(int(center_x + max_width/2) + pad, w - 1)
+
+            min_y = max(int(center_y - max_height/2) - pad, 0)
+            max_y = min(int(center_y + max_height/2) + pad, h - 1)
+
+            left_offset = min_x - int(center_x - max_width/2) - pad
+            top_offset = min_y - int(center_y - max_height/2) - pad
+
+            top = min_y
+            left = min_x
+            left_top_coords.append((left, top))
+
+            cropped_img = img[min_y:max_y, min_x: max_x]
+            cropped_mask = mask[min_y:max_y, min_x: max_x]
+
+            h_c, w_c = cropped_img.shape[:2]
+            # keep black padding
+            try:
+                fixed_size_img[top_offset:h_c+top_offset, left_offset:w_c+left_offset] = cropped_img
+            except ValueError:
+                print("AAA")
+                pass
+            fixed_size_mask[top_offset:h_c+top_offset, left_offset:w_c+left_offset] = cropped_mask
+
+            # resized_img = fixed_size_img
+            resized_img = resize_preserve_ratio(fixed_size_img, 360)
+            resized_mask = resize_preserve_ratio(fixed_size_mask, 360, cv2.INTER_NEAREST)
+
+            r_h, r_w = resized_img.shape[0:2]
+            tensors.append(torch.tensor(resized_img))
+            # tensors.append(torch.tensor(fixed_size_img))
+
+            image = Image.fromarray(resized_img)
+            image.save(p_out_imgs / f'frame_{ti:06d}.jpg')
+
+            mask = Image.fromarray(resized_mask)
+            mask.putpalette(self.res_man.palette)
+            mask.save(p_out_masks / f'frame_{ti:06d}.png')
+
+            # TODO: what do we do with occlusions? (i.e. no mask)
+        rgbs = torch.stack(tensors, dim=0)
+        init_coords = round(resized_img.shape[1] / 2), round(resized_img.shape[0] / 2)  # center of the first mask
+        coords_data = [{0: init_coords}]
+        model = load_model('pips/reference_model')
+        N = len(coords_data)
+
+        # S, H, W, C -> S, C, H, W add batch size
+        rgbs = rgbs.permute(0, 3, 1, 2).unsqueeze(0)
+        traj, vis = run_model(model, rgbs, coords_data, first_frame_only=True)
+        traj = traj.cpu()
+        traj[..., 0] = traj[..., 0] / r_w * fixed_size_img.shape[1]
+        traj[..., 1] = traj[..., 1] / r_h * fixed_size_img.shape[0]
+        traj[:, :self.num_frames] += torch.tensor(left_top_coords).unsqueeze(0).unsqueeze(2)
+        save_results(N, rgbs.squeeze(dim=0), traj.squeeze(dim=0), vis.squeeze(dim=0), p_out, h_c, w_c, orig_sized_images=imgs, already_scaled=True)
+        # pass
+    
     
     def on_compute_candidates(self):
         def _update_candidates(candidates_ids):

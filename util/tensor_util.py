@@ -86,3 +86,14 @@ def get_bbox_from_mask(mask):
     max_y, max_x = nonzero.max(dim=0).values
     
     return int(min_y), int(min_x), int(max_y), int(max_x)
+
+
+def get_blob_coords(mask):
+    if len(mask.shape) == 3:
+        mask = np.max(mask, axis=2)  # color of the mask doesn't matter
+
+    y_non_zero, x_non_zero = np.nonzero(mask)
+    y_min, y_max = y_non_zero.min(), y_non_zero.max()# np.argmin(mask, axis=0), np.argmax(mask, axis=0)
+    x_min, x_max = x_non_zero.min(), x_non_zero.max()
+
+    return x_min, x_max, y_min, y_max

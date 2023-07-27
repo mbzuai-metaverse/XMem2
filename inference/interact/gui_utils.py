@@ -410,9 +410,8 @@ class ColorPicker(QWidget):
         self.outer_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.inner_layout = QGridLayout()  # 2 x N/2
-        self.inner_layout_wrapper = QHBoxLayout()
-        self.inner_layout_wrapper.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        self.inner_layout_wrapper.addLayout(self.inner_layout)
+        # self.inner_layout_wrapper = QHBoxLayout()
+        self.inner_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.palette = color_palette
         self.previously_selected = None
 
@@ -433,15 +432,26 @@ class ColorPicker(QWidget):
 
         color_picker_name = QLabel("Object selector")
         color_picker_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        color_picker_name.setStyleSheet("QLabel {font-family: Monospace; background-color: rgb(225, 225, 225); font-weight: 900}")
+        color_picker_name.setStyleSheet("QLabel {font-family: Monospace; font-weight: 900}")
+
+        num_objects_label = QLabel(f"({self.num_colors} objects)")
+        num_objects_label.setStyleSheet("QLabel {font-family: Monospace; font-weight: 900}")
+        num_objects_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         
         color_picker_instruction = QLabel("Click or use\nnumerical keys")
-        color_picker_instruction.setStyleSheet("QLabel {font-family: Monospace; background-color: rgb(225, 225, 225)}")
+        color_picker_instruction.setStyleSheet("QLabel {font-family: Monospace; font-style: italic}")
         color_picker_instruction.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.outer_layout.addWidget(color_picker_name)
-        self.outer_layout.addWidget(color_picker_instruction)
-        self.outer_layout.addLayout(self.inner_layout_wrapper)
+        text_wrapper_widget = QWidget()
+        text_wrapper_widget.setStyleSheet("QWidget {background-color: rgb(225, 225, 225);}")
+        text_layout = QVBoxLayout(text_wrapper_widget)
+        text_layout.addWidget(color_picker_name)
+        text_layout.addWidget(num_objects_label)
+        text_layout.addWidget(color_picker_instruction)
+
+        self.outer_layout.addWidget(text_wrapper_widget)
+        self.outer_layout.addLayout(self.inner_layout)
 
         self.select(1)  # First object selected by default
 

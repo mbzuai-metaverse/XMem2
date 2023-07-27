@@ -104,7 +104,7 @@ class App(QWidget):
         self.lcd = QTextEdit()
         self.lcd.setReadOnly(True)
         self.lcd.setMaximumHeight(28)
-        self.lcd.setMaximumWidth(120)
+        self.lcd.setFixedWidth(120)
         self.lcd.setText('{: 4d} / {: 4d}'.format(0, self.num_frames-1))
 
         # timeline slider
@@ -268,11 +268,8 @@ class App(QWidget):
         # Drawing area, main canvas and minimap
         self.color_picker = ColorPicker(self.num_objects, davis_palette)
         self.color_picker.clicked.connect(self.hit_number_key)
-        color_picker_wrapper = QVBoxLayout()
-        color_picker_wrapper.setAlignment(Qt.AlignmentFlag.AlignTop)
-        color_picker_wrapper.addWidget(self.color_picker)
         draw_area = QHBoxLayout()
-        draw_area.addLayout(color_picker_wrapper)
+        draw_area.addWidget(self.color_picker)
         draw_area.addWidget(self.main_canvas, 4)
 
         self.tabs = QTabWidget()

@@ -406,7 +406,13 @@ class ColorPicker(QWidget):
         super().__init__(*args, **kwargs)
         self.num_colors = num_colors
 
-        self.inner_layout = QGridLayout(self)  # 2 x N/2
+        self.outer_layout = QVBoxLayout(self)
+        self.outer_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self.inner_layout = QGridLayout()  # 2 x N/2
+        self.inner_layout_wrapper = QHBoxLayout()
+        self.inner_layout_wrapper.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.inner_layout_wrapper.addLayout(self.inner_layout)
         self.palette = color_palette
         self.previously_selected = None
 
@@ -424,7 +430,20 @@ class ColorPicker(QWidget):
             self.inner_layout.addWidget(color_widget, int(i / 2), i % 2)
 
             color_widget.clicked.connect(partial(self._on_color_clicked, index))
-        self.select(1)
+
+        color_picker_name = QLabel("Object selector")
+        color_picker_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        color_picker_name.setStyleSheet("QLabel {font-family: Monospace; background-color: rgb(225, 225, 225); font-weight: 900}")
+        
+        color_picker_instruction = QLabel("Click or use\nnumerical keys")
+        color_picker_instruction.setStyleSheet("QLabel {font-family: Monospace; background-color: rgb(225, 225, 225)}")
+        color_picker_instruction.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.outer_layout.addWidget(color_picker_name)
+        self.outer_layout.addWidget(color_picker_instruction)
+        self.outer_layout.addLayout(self.inner_layout_wrapper)
+
+        self.select(1)  # First object selected by default
 
     def _on_color_clicked(self, index: int):
         self.clicked.emit(index)

@@ -2,11 +2,13 @@ from functools import partial
 from typing import Optional, Union
 import time
 import traceback, sys
+from PyQt5 import QtCore
+from PyQt5.QtGui import QPalette, QColor
 
 from PyQt5.QtCore import Qt, QRunnable, pyqtSlot, pyqtSignal, QObject, QPoint, QRect, QSize
 from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QProgressBar, QDialog, QWidget,
                              QProgressDialog, QScrollArea, QLayout, QLayoutItem, QStyle, QSizePolicy, QSpacerItem,
-                                QFrame, QPushButton, QSlider, QMessageBox)
+                                QFrame, QPushButton, QSlider, QMessageBox, QGridLayout)
 
 class WorkerSignals(QObject):
     '''
@@ -368,9 +370,6 @@ class ImageLinkCollection(QWidget):
     def add_image(self, img_idx):
         image = self.load_image(img_idx)
 
-        # TODO: add frame number
-        # layout = QVBoxLayout()
-        # frame_num = QLabel(f"Frame {img_idx}")
         img_widget = ClickableLabel()
         img_widget.setPixmap(image)
 
@@ -399,3 +398,52 @@ class ImageLinkCollection(QWidget):
             self.remove_image(img_idx)
             if self.delete_image is not None:
                 self.delete_image(img_idx)
+
+class ColorPicker(QWidget):
+    clicked = pyqtSignal(int)
+
+    def __init__(self, num_colors, color_palette: bytes, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.num_colors = num_colors
+
+        self.inner_layout = QGridLayout(self)  # 2 x N/2
+        self.palette = color_palette
+        self.previously_selected = None
+
+        for i in range(self.num_colors):
+            index = i + 1
+
+            color_widget = ClickableLabel(str(index))
+
+            color = self.palette[index * 3: index*3 + 3] 
+
+            color_widget.setStyleSheet(f"QLabel {{font-family: Monospace; color:white; font-weight: 900; background-color: rgb{tuple(color)}}} QLabel.selected {{border: 4px solid}}")
+            color_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            color_widget.setFixedSize(40, 40)
+            self.inner_layout.addWidget(color_widget, int(i / 2), i % 2)
+
+            color_widget.clicked.connect(partial(self._on_color_clicked, index))
+        self.select(1)
+
+    def _on_color_clicked(self, index: int):
+        self.clicked.emit(index)
+        pass
+
+    def select(self, index: int):   # 1-based, not 0-based
+        widget = self.inner_layout.itemAt(index - 1).widget()
+        widget.setProperty("class", "selected")
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+        widget.update()
+
+        # print(widget.text())
+        # print(widget.styleSheet())
+
+        if self.previously_selected is not None:
+            self.previously_selected.setProperty("class", "")
+            self.previously_selected.style().unpolish(self.previously_selected)
+            self.previously_selected.style().polish(self.previously_selected)
+            self.previously_selected.update()
+
+        self.previously_selected = self.inner_layout.itemAt(index - 1).widget()

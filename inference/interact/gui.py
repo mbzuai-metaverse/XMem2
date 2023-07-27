@@ -266,7 +266,13 @@ class App(QWidget):
         navi.addWidget(self.backward_run_button)
 
         # Drawing area, main canvas and minimap
+        self.color_picker = ColorPicker(self.num_objects, davis_palette)
+        self.color_picker.clicked.connect(self.hit_number_key)
+        color_picker_wrapper = QVBoxLayout()
+        color_picker_wrapper.setAlignment(Qt.AlignmentFlag.AlignTop)
+        color_picker_wrapper.addWidget(self.color_picker)
         draw_area = QHBoxLayout()
+        draw_area.addLayout(color_picker_wrapper)
         draw_area.addWidget(self.main_canvas, 4)
 
         self.tabs = QTabWidget()
@@ -917,6 +923,7 @@ class App(QWidget):
         self.vis_brush(self.last_ex, self.last_ey)
         self.update_interact_vis()
         self.show_current_frame()
+        self.color_picker.select(self.current_object)
 
     def clear_brush(self):
         self.brush_vis_map.fill(0)

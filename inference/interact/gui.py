@@ -145,7 +145,7 @@ class App(QWidget):
         self.save_visualization = True
 
         # Radio buttons for type of interactions
-        self.curr_interaction = 'Click'
+        self.curr_interaction = 'Free'
         self.interaction_group = QButtonGroup()
         self.radio_fbrs = QRadioButton('Click')
         self.radio_s2m = QRadioButton('Scribble')
@@ -156,7 +156,7 @@ class App(QWidget):
         self.radio_fbrs.toggled.connect(self.interaction_radio_clicked)
         self.radio_s2m.toggled.connect(self.interaction_radio_clicked)
         self.radio_free.toggled.connect(self.interaction_radio_clicked)
-        self.radio_fbrs.toggle()
+        self.radio_free.toggle()
 
         # Main canvas -> QLabel
         self.main_canvas = QLabel()

@@ -70,7 +70,14 @@ class ResourceManager:
         print(f'Workspace is in: {self.workspace}')
         self.workspace_info_file = path.join(self.workspace, 'info.json')
         self.references = set()
-        self._try_load_references()
+        self._num_objects = None
+        self._try_load_info()
+
+        if config['num_objects'] is not None:  # forced overwrite from user
+            self._num_objects = config['num_objects']
+        elif self._num_objects is None:  # both are None, single object first run use case
+            self._num_objects = config['num_objects_default_value']
+        self._save_info()
 
         # determine the location of input images
         need_decoding = False
@@ -186,23 +193,24 @@ class ResourceManager:
     
     def add_reference(self, frame_id: int):
         self.references.add(frame_id)
-        self._save_references()
+        self._save_info()
 
     def remove_reference(self, frame_id: int):
         self.references.remove(frame_id)
-        self._save_references()
+        self._save_info()
 
-    def _save_references(self):
+    def _save_info(self):
         with open(self.workspace_info_file, 'wt') as f:
-            data = {'references': sorted(self.references)}
+            data = {'references': sorted(self.references), 'num_objects': self._num_objects}
 
             json.dump(data, f)
 
-    def _try_load_references(self):
+    def _try_load_info(self):
         try:
             with open(self.workspace_info_file) as f:
                 data = json.load(f)
                 self.references = set(data['references'])
+                self._num_objects = data['num_objects']
         except Exception:
             pass
 
@@ -311,3 +319,7 @@ class ResourceManager:
     @property
     def selections(self):
         return self._selections
+    
+    @property
+    def num_objects(self):
+        return self._num_objects

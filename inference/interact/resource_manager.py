@@ -203,14 +203,16 @@ class ResourceManager:
         with open(self.workspace_info_file, 'wt') as f:
             data = {'references': sorted(self.references), 'num_objects': self._num_objects}
 
-            json.dump(data, f)
+            json.dump(data, f, indent=4)
 
     def _try_load_info(self):
         try:
             with open(self.workspace_info_file) as f:
                 data = json.load(f)
-                self.references = set(data['references'])
                 self._num_objects = data['num_objects']
+
+                # We might have num_objects, but not references if imported the project
+                self.references = set(data['references'])
         except Exception:
             pass
 

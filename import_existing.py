@@ -7,6 +7,8 @@ from PIL import Image
 import progressbar
 from tqdm import tqdm
 
+from util.image_loader import PaletteConverter
+
 
 def resize_preserve(img, size, interpolation):
     h, w = img.height, img.width
@@ -59,8 +61,7 @@ if __name__ == "__main__":
             exit(0)
         
         from util.palette import davis_palette
-        lookup_table = np.full(256, 0, dtype=np.uint8)
-        num_objects = 0
+        palette_converter = PaletteConverter(davis_palette)
 
         mask_files = sorted(p_masks.iterdir())
         
@@ -69,19 +70,7 @@ if __name__ == "__main__":
             mask = Image.open(p_mask)
             resized_mask = resize_preserve(mask, args.size, Image.Resampling.NEAREST).convert('P')
 
-            unique_colors = resized_mask.getcolors()
-            for _, c in unique_colors:
-                if c == 0:
-                    continue
-                elif lookup_table[c] == 0:
-                    num_objects += 1
-                    lookup_table[c] = num_objects
-
-            # We need range indices like (0, 1, 2, 3, 4) for each unique color, in any order, as long as black is still 0
-            # If the new colors appear, we'll treat them as new objects
-            index_array = lookup_table[resized_mask]
-            index_mask = Image.fromarray(index_array, mode='P')
-            index_mask.putpalette(davis_palette)
+            index_mask = palette_converter.image_to_index_mask(resized_mask)
 
             index_mask.save(p_masks_out / f'frame_{i:06d}{p_mask.suffix}')  # keep the same image form
 
@@ -91,7 +80,7 @@ if __name__ == "__main__":
         except Exception:
             data = {}
         
-        data['num_objects'] = num_objects
+        data['num_objects'] = palette_converter._num_objects
 
         with open(p_project / 'info.json', 'wt') as f_out:
             json.dump(data, f_out, indent=4)

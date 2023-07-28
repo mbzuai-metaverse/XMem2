@@ -854,7 +854,7 @@ class App(QWidget):
     def on_remove_reference(self, img_idx):
         self.processor.remove_from_permanent_memory(img_idx)
         self.reference_ids.remove(img_idx)
-        self.res_man.remove_reference(self.cursur)
+        self.res_man.remove_reference(img_idx)
 
         self.show_current_frame()
 
@@ -1064,7 +1064,7 @@ class App(QWidget):
 
     def update_memory_size(self):
         try:
-            max_work_elements = self.processor.memory.max_work_elements
+            max_work_elements = self.processor.memory.max_work_elements + self.processor.memory.permanent_work_mem.size
             max_long_elements = self.processor.memory.max_long_elements
 
             curr_work_elements = self.processor.memory.temporary_work_mem.size + self.processor.memory.permanent_work_mem.size
@@ -1142,11 +1142,32 @@ class App(QWidget):
                 qm.showMessage(f"Files with incorrect names: {broken_file_names}")
 
             else:
-                for i, p_f in zip(frame_ids, files_paths):
-                    self.scroll_to(i)
-                    self.on_import_mask(str(p_f))
-
-    def on_import_mask(self, mask_file_path=None):
+                if len(frame_ids) > 10:
+                    qm = QMessageBox(QMessageBox.Icon.Question, "Confirm mask replacement", "")
+                    question = f"There are more than 10 masks to import, so confirmations for each individual one would not be asked. Are you willing to continue?"
+                    ret = qm.question(self, 'Confirm mask replacement', question, qm.Yes | qm.No)
+                    if ret == qm.Yes:
+                        progress_dialog = QProgressDialog("Importing masks", None, 0, len(frame_ids), self, Qt.WindowFlags(Qt.WindowType.Dialog | ~Qt.WindowCloseButtonHint))
+                        progress_dialog.open()
+                        a = perf_counter()
+                        for i, p_f in zip(frame_ids, files_paths):
+                            # Only showing progress bar to speed up
+                            self.cursur = i
+                            self.on_import_mask(str(p_f), ask_confirmation=False)
+                            progress_dialog.setValue(i + 1)
+                            QApplication.processEvents()
+                        b = perf_counter()
+                        self.console_push_text(f"Importing {len(frame_ids)} masks took {b-a:.2f} seconds ({len(frame_ids)/(b-a):.2f} FPS)")
+                    self.cursur = 0
+                            
+                else:
+                    for i, p_f in zip(frame_ids, files_paths):
+                        self.scroll_to(i)
+                        self.on_import_mask(str(p_f), ask_confirmation=True)
+    
+    from profilehooks import profile
+    @profile(stdout=False, immediate=False, filename='on_import_mask.profile')
+    def on_import_mask(self, mask_file_path=None, ask_confirmation=True):
         if mask_file_path:
             file_name = mask_file_path
         else:
@@ -1171,17 +1192,29 @@ class App(QWidget):
         elif not object_condition:
             self.console_push_text(f'Expected {self.num_objects} objects. Got {mask.max()} objects instead.')
         else:
-            qm = QMessageBox(QMessageBox.Icon.Question, "Confirm mask replacement", "")
-            question = f"Replace mask for current frame {self.cursur} with {Path(file_name).name}?"
-            ret = qm.question(self, 'Confirm mask replacement', question, qm.Yes | qm.No)
+            if ask_confirmation:
+                qm = QMessageBox(QMessageBox.Icon.Question, "Confirm mask replacement", "")
+                question = f"Replace mask for current frame {self.cursur} with {Path(file_name).name}?"
+                ret = qm.question(self, 'Confirm mask replacement', question, qm.Yes | qm.No)
 
-            if ret == qm.Yes:
+            if not ask_confirmation or ret == qm.Yes:
                 self.console_push_text(f'Mask file {file_name} loaded.')
                 self.current_image_torch = self.current_prob = None
                 self.current_mask = mask
-                self.show_current_frame()
+
+                if ask_confirmation:
+                    # for speedup purposes
+                    self.curr_frame_dirty = False
+                    self.reset_this_interaction()
+                    self.show_current_frame()
+
                 self.save_current_mask()
-                self.on_save_reference()
+
+            if ask_confirmation:
+                # Only save references if it's an individual image or a few (< 10)
+                # If the user is importing 1000+ masks, the memory is going to explode
+                self.on_save_reference()                
+
 
     def on_import_layer(self):
         file_name = self._open_file('Layer')

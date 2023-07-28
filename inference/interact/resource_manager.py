@@ -10,6 +10,8 @@ from PIL import Image
 import torch
 from torchvision.transforms import Resize, InterpolationMode
 
+from util.image_loader import PaletteConverter
+
 if not hasattr(Image, 'Resampling'):  # Pillow<9.0
     Image.Resampling = Image
 import numpy as np
@@ -49,6 +51,7 @@ class ResourceManager:
         self.workspace = config['workspace']
         self.size = config['size']
         self.palette = davis_palette
+        self.palette_converter = PaletteConverter(self.palette)
 
         # create temporary workspace if not specified
         if self.workspace is None:
@@ -196,6 +199,7 @@ class ResourceManager:
         self._save_info()
 
     def remove_reference(self, frame_id: int):
+        print(self.references)
         self.references.remove(frame_id)
         self._save_info()
 
@@ -267,25 +271,27 @@ class ResourceManager:
             # PIL uses (width, height)
             image = image.resize((size[1], size[0]), 
                     resample=Image.Resampling.NEAREST if is_mask or force_mask else Image.Resampling.BICUBIC)
+        
         if force_mask and image.mode != 'P':
-            if image.mode in ['RGB', 'L'] and len(image.getcolors()) <= 2:
-                image = np.array(image.convert('L'))
-                # hardcoded for b&w images
-                image = np.where(image, 1, 0)  # 255 (or whatever) -> binarize
+            image = self.palette_converter.image_to_index_mask(image)
+        #     if image.mode in ['RGB', 'L'] and len(image.getcolors()) <= 2:
+        #         image = np.array(image.convert('L'))
+        #         # hardcoded for b&w images
+        #         image = np.where(image, 1, 0)  # 255 (or whatever) -> binarize
 
-                return image.astype('uint8')
-            elif image.mode == 'RGB':
-                image = image.convert('P', palette=self.palette)
-                tmp_image = np.array(image)
-                out_image = np.zeros_like(tmp_image)
-                for i, c in enumerate(np.unique(tmp_image)):
-                    if i == 0:
-                        continue
-                    out_image[tmp_image == c] = i  # palette indices into 0, 1, 2, ...
-                self.palette = image.getpalette()
-                return out_image
+        #         return image.astype('uint8')
+        #     elif image.mode == 'RGB':
+        #         image = image.convert('P', palette=self.palette)
+        #         tmp_image = np.array(image)
+        #         out_image = np.zeros_like(tmp_image)
+        #         for i, c in enumerate(np.unique(tmp_image)):
+        #             if i == 0:
+        #                 continue
+        #             out_image[tmp_image == c] = i  # palette indices into 0, 1, 2, ...
+        #         self.palette = image.getpalette()
+        #         return out_image
                 
-            image = image.convert('P', palette=self.palette)  # saved without DAVIS palette, just number objects 0, 1, ...
+        #     image = image.convert('P', palette=self.palette)  # saved without DAVIS palette, just number objects 0, 1, ...
             
         image = np.array(image)
         return image

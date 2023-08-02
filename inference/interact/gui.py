@@ -815,7 +815,7 @@ class App(QWidget):
         alpha = self.candidates_alpha_slider.value()
         candidate_progress = QProgressDialog("Selecting candidates", None, 0, k, self, Qt.WindowFlags(Qt.WindowType.Dialog | ~Qt.WindowCloseButtonHint))
         worker = Worker(select_next_candidates, self.res_man.keys, self.res_man.shrinkages, self.res_man.selections, self.res_man.small_masks, k, self.reference_ids, 
-                        print_progress=False, min_mask_presence_percent=float(self.candidates_min_mask_size_edit.text()), alpha=alpha, h=self.res_man.key_h, w=self.res_man.key_w) # Any other args, kwargs are passed to the run function
+                        print_progress=False, min_mask_presence_percent=float(self.candidates_min_mask_size_edit.text()), alpha=alpha) # Any other args, kwargs are passed to the run function
         worker.signals.result.connect(_update_candidates)
         worker.signals.progress.connect(_update_progress)
 

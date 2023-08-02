@@ -8,6 +8,8 @@ import torchvision.transforms.functional as FT
 from torchvision.transforms import ColorJitter, Grayscale, RandomPosterize, RandomAdjustSharpness, ToTensor, RandomAffine
 from tqdm import tqdm
 
+from inference.data.video_reader import Sample
+
 
 def extract_keys(dataloder, processor, print_progress=False, flatten=True, **kwargs):
     frame_keys = []
@@ -18,7 +20,8 @@ def extract_keys(dataloder, processor, print_progress=False, flatten=True, **kwa
         key_sum = None
 
         for ti, data in enumerate(tqdm(dataloder, disable=not print_progress, desc='Calculating key features')):
-            rgb = data['rgb'].cuda()[0]
+            data: Sample = data
+            rgb = data.rgb.cuda()
             key, shrinkage, selection = processor.encode_frame_key(rgb)
 
             if key_sum is None:

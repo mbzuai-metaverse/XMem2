@@ -1,10 +1,11 @@
+from dataclasses import replace
 from functools import partial
-import os
+from multiprocessing import Process, Queue
 from os import PathLike, path
 from tempfile import TemporaryDirectory
 from time import perf_counter
-from typing import Iterable, Literal, Union, List
-from collections import defaultdict
+import time
+from typing import Iterable, Literal, Optional, Union, List
 from pathlib import Path
 from warnings import warn
 
@@ -14,105 +15,177 @@ import torch
 import torch.nn.functional as F
 from torchvision.transforms import functional as FT, ToTensor
 from torch.utils.data import DataLoader
-from baal.active.heuristics import BALD
-from scipy.stats import entropy
 from tqdm import tqdm
 from PIL import Image
 
 from inference.frame_selection.frame_selection import select_next_candidates
 from model.network import XMem
-from util.image_saver import create_overlay, save_image
-from util.tensor_util import compute_array_iou, compute_tensor_iou
+from util.configuration import VIDEO_INFERENCE_CONFIG
+from util.image_saver import ParallelImageSaver, create_overlay, save_image
+from util.tensor_util import compute_array_iou
 from inference.inference_core import InferenceCore
-from inference.data.video_reader import VideoReader
+from inference.data.video_reader import Sample, VideoReader
 from inference.data.mask_mapper import MaskMapper
-# from inference.frame_selection.frame_selection import KNOWN_ANNOTATION_PREDICTORS
-from inference.frame_selection.frame_selection_utils import disparity_func, extract_keys, get_determenistic_augmentations
+from inference.frame_selection.frame_selection_utils import extract_keys, get_determenistic_augmentations
 
+from profilehooks import profile
 
-def save_frames(dataset, frame_indices, output_folder):
-    p_out = Path(output_folder)
-
-    if not p_out.exists():
-        p_out.mkdir(parents=True)
-
-    for i in frame_indices:
-        sample = dataset[i]
-        rgb_raw_tensor = sample['raw_image_tensor'].cpu().squeeze()
-        img = FT.to_pil_image(rgb_raw_tensor)
-
-        img.save(p_out / f'frame_{i:06d}.png')
-
-
+# @profile(stdout=False, immediate=False, filename='run_on_video_aug_2023_parallel_composite_and_saving.profile')
 def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_out_path,
                         original_memory_mechanism=False,
-                        compute_iou=False, compute_uncertainty=False, manually_curated_masks=False, print_progress=True,
+                        compute_iou=False, 
+                        manually_curated_masks=False, 
+                        print_progress=True,
                         augment_images_with_masks=False,
-                        uncertainty_name: str = None,
-                        only_predict_frames_to_annotate_and_quit=0,
                         overwrite_config: dict = None,
-                        frame_selector_func: callable = None,
                         save_overlay=True,
-                        b_and_w_color=(255, 0, 0), measure_fps=False):
+                        object_color_if_single_object=(255, 255, 255), 
+                        print_fps=False,
+                        image_saving_max_queue_size=200):
+    
     torch.autograd.set_grad_enabled(False)
     frames_with_masks = set(frames_with_masks)
-    config = {
-        'buffer_size': 100,
-        'deep_update_every': -1,
-        'enable_long_term': True,
-        'enable_long_term_count_usage': True,
-        'fbrs_model': 'saves/fbrs.pth',
-        'hidden_dim': 64,
-        'images': None,
-        'key_dim': 64,
-        'max_long_term_elements': 10000,
-        'max_mid_term_frames': 10,
-        'mem_every': 10,
-        'min_mid_term_frames': 5,
-        'model': './saves/XMem.pth',
-        'no_amp': False,
-        'num_objects': 1,
-        'num_prototypes': 128,
-        's2m_model': 'saves/s2m.pth',
-        'size': 480,
-        'top_k': 30,
-        'value_dim': 512,
-        # f'../VIDEOS/RESULTS/XMem_memory/thanks_two_face_5_frames/',
-        'masks_out_path': masks_out_path,
-        'workspace': None,
-        'save_masks': True
-    }
 
-    if overwrite_config is not None:
-        config.update(overwrite_config)
+    config = VIDEO_INFERENCE_CONFIG.copy()
+    overwrite_config = {} if overwrite_config is None else overwrite_config
+    overwrite_config['masks_out_path'] = masks_out_path
+    config.update(overwrite_config)
 
-    if compute_uncertainty:
-        assert uncertainty_name is not None
-        uncertainty_name = uncertainty_name.lower()
-        assert uncertainty_name in {'entropy',
-                                    'bald', 'disparity', 'disparity_large'}
-        compute_disparity = uncertainty_name.startswith('disparity')
+    mapper, processor, vid_reader, loader = _load_main_objects(imgs_in_path, masks_in_path, config)
+    vid_name = vid_reader.vid_name
+    vid_length = len(loader)
+
+    at_least_one_mask_loaded = False
+    total_preloading_time = 0.0
+
+    if original_memory_mechanism:
+        # only the first frame goes into permanent memory originally
+        frames_to_put_in_permanent_memory = [0]
+        # the rest are going to be processed later
     else:
-        compute_disparity = False
+        # in our modification, all frames with provided masks go into permanent memory
+        frames_to_put_in_permanent_memory = frames_with_masks
+    at_least_one_mask_loaded, total_preloading_time = _preload_permanent_memory(frames_to_put_in_permanent_memory, vid_reader, mapper, processor, augment_images_with_masks=augment_images_with_masks)
 
-    vid_reader = VideoReader(
-        "",
-        imgs_in_path,  # f'/home/maksym/RESEARCH/VIDEOS/thanks_no_ears_5_annot/JPEGImages',
-        masks_in_path,  # f'/home/maksym/RESEARCH/VIDEOS/thanks_no_ears_5_annot/Annotations_binarized_two_face',
-        size=config['size'],
-        use_all_masks=(only_predict_frames_to_annotate_and_quit == 0)
-    )
+    if not at_least_one_mask_loaded:
+        raise ValueError("No valid masks provided!")
 
+    stats = []
+
+    total_processing_time = 0.0
+    with ParallelImageSaver(config['masks_out_path'], vid_name=vid_name, overlay_color_if_b_and_w=object_color_if_single_object, max_queue_size=image_saving_max_queue_size) as im_saver:
+        for ti, data in enumerate(tqdm(loader, disable=not print_progress)):
+            with torch.cuda.amp.autocast(enabled=True):
+                data: Sample = data  # Just for Intellisense
+                # No batch dimension here, just single samples
+                sample = replace(data, rgb=data.rgb.cuda())
+                
+                if ti in frames_with_masks:
+                    msk = sample.mask
+                else:
+                    msk = None
+                    
+                # Map possibly non-continuous labels to continuous ones
+                if msk is not None:
+                    # https://github.com/hkchengrex/XMem/issues/21 just make exhaustive = True
+                    msk, labels = mapper.convert_mask(
+                        msk.numpy(), exhaustive=True)
+                    msk = torch.Tensor(msk).cuda()
+                    if sample.need_resize:
+                        msk = vid_reader.resize_mask(msk.unsqueeze(0))[0]
+                    processor.set_all_labels(list(mapper.remappings.values()))
+                else:
+                    labels = None
+
+                if original_memory_mechanism:
+                    # we only ignore the first mask, since it's already in the permanent memory
+                    do_not_add_mask_to_memory = (ti == 0)
+                else:
+                    # we ignore all frames with masks, since they are already preloaded in the permanent memory
+                    do_not_add_mask_to_memory = msk is not None
+                # Run the model on this frame
+                # 2+ channels, classes+ and background
+                a = perf_counter()
+                prob = processor.step(sample.rgb, msk, labels, end=(ti == vid_length-1),
+                                    manually_curated_masks=manually_curated_masks, do_not_add_mask_to_memory=do_not_add_mask_to_memory)
+
+                # Upsample to original size if needed
+                out_mask = _post_process(sample, prob)
+                b = perf_counter()
+                total_processing_time += (b - a)
+
+                curr_stat = {'frame': sample.frame, 'mask_provided': msk is not None}
+                if compute_iou:
+                    gt = sample.mask  # for IoU computations, original mask or None, NOT msk
+                    if gt is not None and msk is None:  # There exists a ground truth, but the model didn't see it
+                        iou = float(compute_array_iou(out_mask, gt))
+                    else:
+                        iou = -1  # skipping frames where the model saw the GT
+                    curr_stat['iou'] = iou
+                stats.append(curr_stat)
+
+                # Save the mask and the overlay (potentially)
+
+                if config['save_masks']:
+                    out_mask = mapper.remap_index_mask(out_mask)
+                    out_img = Image.fromarray(out_mask)
+                    out_img = vid_reader.map_the_colors_back(out_img)
+
+                    im_saver.save_mask(mask=out_img, frame_name=sample.frame)
+
+                    if save_overlay:
+                        original_img = sample.raw_image_pil
+                        im_saver.save_overlay(orig_img=original_img, mask=out_img, frame_name=sample.frame)
+        im_saver.wait_for_jobs_to_finish(verbose=True)
+
+    if print_fps:
+        print(f"TOTAL PRELOADING TIME: {total_preloading_time:.4f}s")
+        print(f"TOTAL PROCESSING TIME: {total_processing_time:.4f}s")
+        print(f"TOTAL TIME (excluding image saving): {total_preloading_time + total_processing_time:.4f}s")
+        print(f"TOTAL PROCESSING FPS: {len(loader) / total_processing_time:.4f}")
+        print(f"TOTAL FPS (excluding image saving): {len(loader) / (total_preloading_time + total_processing_time):.4f}")
+
+    return pd.DataFrame(stats)
+
+def _load_main_objects(imgs_in_path, masks_in_path, config):
     model_path = config['model']
     network = XMem(config, model_path).cuda().eval()
     if model_path is not None:
         model_weights = torch.load(model_path)
         network.load_weights(model_weights, init_as_zero_if_needed=True)
     else:
-        print('No model loaded.')
+        warn('No model weights were loaded, as config["model"] was not specified.')
 
-    loader = DataLoader(vid_reader, batch_size=1, shuffle=False, num_workers=8)
-    vid_name = vid_reader.vid_name
+    mapper = MaskMapper()
+    processor = InferenceCore(network, config=config)
+
+    vid_reader, loader = _create_dataloaders(imgs_in_path, masks_in_path, config)
+    return mapper,processor,vid_reader,loader
+
+
+def _post_process(sample, prob):
+    if sample.need_resize:
+        prob = F.interpolate(prob.unsqueeze(
+                    1), sample.shape, mode='bilinear', align_corners=False)[:, 0]
+
+    # Probability mask -> index mask
+    out_mask = torch.argmax(prob, dim=0)
+    out_mask = (out_mask.detach().cpu().numpy()).astype(np.uint8)
+    return out_mask
+
+
+def _create_dataloaders(imgs_in_path: Union[str, PathLike], masks_in_path: Union[str, PathLike], config: dict):
+    vid_reader = VideoReader(
+        "",
+        imgs_in_path,  # f'/home/maksym/RESEARCH/VIDEOS/thanks_no_ears_5_annot/JPEGImages',
+        masks_in_path,  # f'/home/maksym/RESEARCH/VIDEOS/thanks_no_ears_5_annot/Annotations_binarized_two_face',
+        size=config['size'],
+        use_all_masks=True
+    )
+    
+    # Just return the samples as they are; only using DataLoader for preloading frames from the disk
+    loader = DataLoader(vid_reader, batch_size=None, shuffle=False, num_workers=8, collate_fn=VideoReader.collate_fn_identity)
+
     vid_length = len(loader)
     # no need to count usage for LT if the video is not that long anyway
     config['enable_long_term_count_usage'] = (
@@ -122,63 +195,41 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
             * config['num_prototypes'])
         >= config['max_long_term_elements']
     )
+    
+    return vid_reader,loader
 
-    mapper = MaskMapper()
-    processor = InferenceCore(network, config=config)
-    first_mask_loaded = False
 
-    if only_predict_frames_to_annotate_and_quit > 0:
-        assert frame_selector_func is not None
-        chosen_annotation_candidate_frames = frame_selector_func(
-            loader, processor, print_progress=print_progress, how_many_frames=only_predict_frames_to_annotate_and_quit, existing_masks_path=masks_out_path)
-
-        return chosen_annotation_candidate_frames
-
-    frames_ = []
-    masks_ = []
-
-    total_preloading_time = 0.0
-    if original_memory_mechanism:
-        # only the first frame goes into permanent memory originally
-        frames_to_put_in_permanent_memory = [0]
-        # the rest are going to be processed later
-    else:
-        # in our modification, all frames with provided masks go into permanent memory
-        frames_to_put_in_permanent_memory = frames_with_masks
+def _preload_permanent_memory(frames_to_put_in_permanent_memory: List[int], vid_reader: VideoReader, mapper: MaskMapper, processor: InferenceCore, augment_images_with_masks=False):
+    total_preloading_time = 0
+    at_least_one_mask_loaded = False
     for j in frames_to_put_in_permanent_memory:
-        sample = vid_reader[j]
-        rgb = sample['rgb'].cuda()
-        rgb_raw_tensor = sample['raw_image_tensor'].cpu()
-        msk = sample['mask']
-        info = sample['info']
-        need_resize = info['need_resize']
+        sample: Sample = vid_reader[j]
+        sample = replace(sample, rgb=sample.rgb.cuda())
 
         # https://github.com/hkchengrex/XMem/issues/21 just make exhaustive = True
-        msk, labels = mapper.convert_mask(msk, exhaustive=True)
+        msk, labels = mapper.convert_mask(sample.mask, exhaustive=True)
         msk = torch.Tensor(msk).cuda()
 
         if min(msk.shape) == 0:  # empty mask, e.g. [1, 0, 720, 1280]
-            print(f"Skipping adding frame {j} to memory, as the mask is empty")
+            warn(f"Skipping adding frame {j} to permanent memory, as the mask is empty")
             continue  # just don't add anything to the memory
-        if need_resize:
+        if sample.need_resize:
             msk = vid_reader.resize_mask(msk.unsqueeze(0))[0]
+        # sample = replace(sample, mask=msk)
 
         processor.set_all_labels(list(mapper.remappings.values()))
         a = perf_counter()
-        processor.put_to_permanent_memory(rgb, msk)
+        processor.put_to_permanent_memory(sample.rgb, msk)
         b = perf_counter()
         total_preloading_time += (b - a)
 
-        if not first_mask_loaded:
-            first_mask_loaded = True
-
-        frames_.append(rgb)
-        masks_.append(msk)
+        if not at_least_one_mask_loaded:
+            at_least_one_mask_loaded = True
 
         if augment_images_with_masks:
             augs = get_determenistic_augmentations(
-                rgb.shape, msk, subset='best_all')
-            rgb_raw = FT.to_pil_image(rgb_raw_tensor)
+                sample.rgb.shape, msk, subset='best_all')
+            rgb_raw = sample.raw_image_pil
 
             for img_aug, mask_aug in augs:
                 # tensor -> PIL.Image -> tensor -> whatever normalization vid_reader applies
@@ -187,157 +238,8 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
                 msk_aug = mask_aug(msk)
 
                 processor.put_to_permanent_memory(rgb_aug, msk_aug)
-
-    if not first_mask_loaded:
-        raise ValueError("No valid masks provided!")
-
-    stats = []
-
-    if compute_uncertainty and uncertainty_name == 'bald':
-        bald = BALD()
-
-    total_processing_time = 0.0
-    for ti, data in enumerate(tqdm(loader, disable=not print_progress)):
-        with torch.cuda.amp.autocast(enabled=True):
-            rgb = data['rgb'].cuda()[0]
-            rgb_raw_tensor = data['raw_image_tensor'].cpu()[0]
-
-            gt = data.get('mask')  # for IoU computations
-            if ti in frames_with_masks:
-                msk = data['mask']
-            else:
-                msk = None
-
-            info = data['info']
-            frame = info['frame'][0]
-            shape = info['shape']
-            need_resize = info['need_resize'][0]
-            curr_stat = {'frame': frame, 'mask_provided': msk is not None}
-
-            # not important anymore as long as at least one mask is in permanent memory
-            if original_memory_mechanism and not first_mask_loaded:
-                if msk is not None:
-                    first_mask_loaded = True
-                else:
-                    # no point to do anything without a mask
-                    continue
-
-            # Map possibly non-continuous labels to continuous ones
-            if msk is not None:
-                # https://github.com/hkchengrex/XMem/issues/21 just make exhaustive = True
-                msk, labels = mapper.convert_mask(
-                    msk[0].numpy(), exhaustive=True)
-                msk = torch.Tensor(msk).cuda()
-                if need_resize:
-                    msk = vid_reader.resize_mask(msk.unsqueeze(0))[0]
-                processor.set_all_labels(list(mapper.remappings.values()))
-
-            else:
-                labels = None
-
-            if (compute_uncertainty and uncertainty_name == 'bald') or compute_disparity:
-                dry_run_preds = []
-                augged_images = []
-                augs = get_determenistic_augmentations(subset='original_only')
-                rgb_raw = FT.to_pil_image(rgb_raw_tensor)
-                for img_aug, mask_aug in augs:
-                    # tensor -> PIL.Image -> tensor -> whatever normalization vid_reader applies
-                    augged_img = img_aug(rgb_raw)
-                    augged_images.append(augged_img)
-                    rgb_aug = vid_reader.im_transform(augged_img).cuda()
-
-                    # does not do anything, since original_only=True augmentations don't alter the mask at all
-                    msk = mask_aug(msk)
-
-                    dry_run_prob = processor.step(rgb_aug, msk, labels, end=(ti == vid_length-1),
-                                                  manually_curated_masks=manually_curated_masks, disable_memory_updates=True)
-                    dry_run_preds.append(dry_run_prob.cpu())
-
-            if original_memory_mechanism:
-                # we only ignore the first mask, since it's already in the permanent memory
-                do_not_add_mask_to_memory = (ti == 0)
-            else:
-                # we ignore all frames with masks, since they are already preloaded in the permanent memory
-                do_not_add_mask_to_memory = msk is not None
-            # Run the model on this frame
-            # 2+ channels, classes+ and background
-            a = perf_counter()
-            prob = processor.step(rgb, msk, labels, end=(ti == vid_length-1),
-                                  manually_curated_masks=manually_curated_masks, do_not_add_mask_to_memory=do_not_add_mask_to_memory)
-
-            if compute_uncertainty:
-                if uncertainty_name == 'bald':
-                    # [batch=1, num_classes, ..., num_iterations]
-                    all_samples = torch.stack(
-                        [x.unsqueeze(0) for x in dry_run_preds + [prob.cpu()]], dim=-1).numpy()
-                    score = bald.compute_score(all_samples)
-                    curr_stat['bald'] = float(np.squeeze(score).mean())
-                elif compute_disparity:
-                    disparity_stats = disparity_func(
-                        predictions=[prob] + dry_run_preds, augs=[img_aug for img_aug, _ in augs], images=[rgb_raw] + augged_images, output_save_path=None)
-                    curr_stat['disparity'] = float(disparity_stats['avg'])
-                    curr_stat['disparity_large'] = float(
-                        disparity_stats['large'])
-                else:
-                    e = entropy(prob.cpu())
-                    e_mean = np.mean(e)
-                    curr_stat['entropy'] = float(e_mean)
-
-            # Upsample to original size if needed
-            if need_resize:
-                prob = F.interpolate(prob.unsqueeze(
-                    1), shape, mode='bilinear', align_corners=False)[:, 0]
-
-            # Probability mask -> index mask
-            out_mask = torch.argmax(prob, dim=0)
-            out_mask = (out_mask.detach().cpu().numpy()).astype(np.uint8)
-            b = perf_counter()
-            total_processing_time += (b - a)
-
-            if compute_iou:
-                # mask is [0, 1]
-                # gt   is [0, 255]
-                # both -> [False, True]
-                if gt is not None and msk is None:
-                    # skipping frames
-                    iou = float(compute_array_iou(out_mask, gt))
-                else:
-                    iou = -1
-                curr_stat['iou'] = iou
-
-            # Save the mask
-            if config['save_masks']:
-                original_img = FT.to_pil_image(rgb_raw_tensor)
-
-                out_mask = mapper.remap_index_mask(out_mask)
-                out_img = Image.fromarray(out_mask)
-                out_img = vid_reader.map_the_colors_back(out_img)
-                save_image(out_img, frame, vid_name, general_dir_path=config['masks_out_path'], sub_dir_name='masks', extension='.png')
-
-                if save_overlay:
-                    overlaid_img = create_overlay(original_img, out_img, color_if_black_and_white=b_and_w_color)
-                    save_image(overlaid_img, frame, vid_name, general_dir_path=config['masks_out_path'], sub_dir_name='overlay', extension='.jpg')
-
-            if False:  # args.save_scores:
-                np_path = path.join(args.output, 'Scores', vid_name)
-                os.makedirs(np_path, exist_ok=True)
-                if ti == len(loader)-1:
-                    hkl.dump(mapper.remappings, path.join(
-                        np_path, f'backward.hkl'), mode='w')
-                if args.save_all or info['save'][0]:
-                    hkl.dump(prob, path.join(
-                        np_path, f'{frame[:-4]}.hkl'), mode='w', compression='lzf')
-
-            stats.append(curr_stat)
-
-    if measure_fps:
-        print(f"TOTAL PRELOADING TIME: {total_preloading_time:.4f}s")
-        print(f"TOTAL PROCESSING TIME: {total_processing_time:.4f}s")
-        print(f"TOTAL TIME: {total_preloading_time + total_processing_time:.4f}s")
-        print(f"TOTAL PROCESSING FPS: {len(loader) / total_processing_time:.4f}")
-        print(f"TOTAL FPS: {len(loader) / (total_preloading_time + total_processing_time):.4f}")
-
-    return pd.DataFrame(stats)
+    
+    return at_least_one_mask_loaded, total_preloading_time
 
 
 def run_on_video(
@@ -372,117 +274,95 @@ def run_on_video(
         masks_in_path=masks_in_path,
         masks_out_path=masks_out_path,
         frames_with_masks=frames_with_masks,
-        compute_uncertainty=False,
         compute_iou=compute_iou,
         print_progress=print_progress,
-        manually_curated_masks=False,
          **kwargs
     )
 
 
-def predict_annotation_candidates(
-    imgs_in_path: Union[str, PathLike],
-    candidate_selection_function: callable,
-    masks_in_path: Union[str, PathLike] = None,
-    num_candidates: int = 1,
-    print_progress=True,
-    **kwargs
-) -> List[int]:
-    
-    warn('predict_annotation_candidates is deprecated, used ', DeprecationWarning, stacklevel=2)
-
-    """
-    Args:
-    imgs_in_path (Union[str, PathLike]): Path to the directory containing video frames in the following format: `frame_000000.png` .jpg works too.
-
-    if num_candidates == 1:
-        return [0]  # First frame is hard-coded to always be used
-
-    #         p_bar.update()
-
-    Returns:
-    annotation_candidates (List[int]): A list of frames indices (0-based) chosen as annotation candidates, sorted by importance (most -> least). Always contains [0] - first frame - at index 0.
-    """
-
-    # candidate_selection_function = KNOWN_ANNOTATION_PREDICTORS[approach]
-
-    assert num_candidates >= 1
-
-    if num_candidates == 1:
-        return [0]  # First frame is hard-coded to always be used
-
-    try:
-        masks_out_path = kwargs.pop('masks_out_path')
-    except KeyError:
-        masks_out_path = None
-
-    return _inference_on_video(
-        imgs_in_path=imgs_in_path,
-        masks_in_path=masks_in_path,  # Ignored
-        masks_out_path=masks_out_path,  # Used for some frame selectors
-        frames_with_masks=[0],
-        compute_uncertainty=False,
-        compute_iou=False,
-        print_progress=print_progress,
-        manually_curated_masks=False,
-        only_predict_frames_to_annotate_and_quit=num_candidates,
-        frame_selector_func=candidate_selection_function
-    )
-
 def select_k_next_best_annotation_candidates(
     imgs_in_path: Union[str, PathLike],
-    masks_in_path: Union[str, PathLike],
+    masks_in_path: Union[str, PathLike],  # at least the 1st frame
+    masks_out_path: Optional[Union[str, PathLike]] = None,
     k: int = 5,
     print_progress=True,
     previously_chosen_candidates=[0],
+    use_previously_predicted_masks=True,
+    # Candidate selection hyperparameters
+    alpha=0.5,
+    min_mask_presence_percent=0.25,
     **kwargs
 ):
-    # extracting the keys and corresponding matrices 
-    keys, shrinkages, selections, *_ =  _inference_on_video(
-        imgs_in_path=imgs_in_path,
-        masks_in_path=masks_in_path,  # Ignored
-        masks_out_path=None,  # Used for some frame selectors
-        frames_with_masks=previously_chosen_candidates,
-        compute_uncertainty=False,
-        compute_iou=False,
-        print_progress=print_progress,
-        manually_curated_masks=False,
-        only_predict_frames_to_annotate_and_quit=True,  # exact number is ignored here
-        frame_selector_func=partial(extract_keys, flatten=False),
-        **kwargs
-    )
+    """
+    Selects the next best annotation candidate frames based on the provided frames and mask paths.
 
-    # running inference once to obtain masks
+    Parameters:
+        imgs_in_path (Union[str, PathLike]): The path to the directory containing input images.
+        masks_in_path (Union[str, PathLike]): The path to the directory containing the first frame masks.
+        masks_out_path (Optional[Union[str, PathLike]], optional): The path to save the generated masks.
+            If not provided, a temporary directory will be used. Defaults to None.
+        k (int, optional): The number of next best annotation candidate frames to select. Defaults to 5.
+        print_progress (bool, optional): Whether to print progress during processing. Defaults to True.
+        previously_chosen_candidates (list, optional): List of indices of frames with previously chosen candidates.
+            Defaults to [0].
+        use_previously_predicted_masks (bool, optional): Whether to use previously predicted masks.
+            If True, `masks_out_path` must be provided. Defaults to True.
+        alpha (float, optional): Hyperparameter controlling the candidate selection process. Defaults to 0.5.
+        min_mask_presence_percent (float, optional): Minimum mask presence percentage for candidate selection.
+            Defaults to 0.25.
+        **kwargs: Additional keyword arguments to pass to `run_on_video`.
+
+    Returns:
+        list: A list of indices representing the selected next best annotation candidate frames.
+    """
+    mapper, processor, vid_reader, loader = _load_main_objects(imgs_in_path, masks_in_path, VIDEO_INFERENCE_CONFIG)
+
+    # Extracting "key" feature maps
+    # Could be combined with inference (like in GUI), but the code would be a mess
+    frame_keys, shrinkages, selections, *_ = extract_keys(loader, processor, print_progress=print_progress, flatten=False)
+    # extracting the keys and corresponding matrices 
+
     to_tensor = ToTensor()
-    with TemporaryDirectory() as d:
-        p_masks_out = Path(d)
-        _inference_on_video(
+    if masks_out_path is not None:
+        p_masks_out = Path(masks_out_path)
+
+    if use_previously_predicted_masks:
+        print("Using existing predicted masks, no need to run inference.")
+        assert masks_out_path is not None, "When `use_existing_masks=True`, you need to put the path to previously predicted masks in `masks_out_path`"
+        try:
+            masks = [to_tensor(Image.open(p)) for p in sorted((p_masks_out / 'masks').iterdir())]
+        except Exception as e:
+            warn("Loading previously predicting masks failed for `select_k_next_best_annotation_candidates`.")
+            raise e
+        if len(masks) != len(frame_keys):
+            raise FileNotFoundError(f"Not enough masks ({len(masks)}) for {len(frame_keys)} frames provided when using `use_previously_predicted_masks=True`!")
+    else:
+        print("Existing predictions were not given, will run full inference and save masks in `masks_out_path` or a temporary directory if `masks_out_path` is not given.")
+        if masks_out_path is None:
+            d = TemporaryDirectory()
+            p_masks_out = Path(d)
+        
+        # running inference once to obtain masks
+        run_on_video(
             imgs_in_path=imgs_in_path,
             masks_in_path=masks_in_path,  # Ignored
             masks_out_path=p_masks_out,  # Used for some frame selectors
             frames_with_masks=previously_chosen_candidates,
-            compute_uncertainty=False,
             compute_iou=False,
             print_progress=print_progress,
-            manually_curated_masks=False,
             **kwargs
         )
 
         masks = [to_tensor(Image.open(p)) for p in sorted((p_masks_out / 'masks').iterdir())]
 
-    keys = torch.cat(keys)
+    keys = torch.cat(frame_keys)
     shrinkages = torch.cat(shrinkages)
     selections = torch.cat(selections)
 
-    # TODO: fix shapes
-    print(f"[xxx] Running with previously chosen candidates: {previously_chosen_candidates}")
-    min_mask_presence_percent = 0.25
-    try:
-        all_selected_frames = select_next_candidates(keys, shrinkages=shrinkages, selections=selections, masks=masks, num_next_candidates=k, previously_chosen_candidates=previously_chosen_candidates, print_progress=print_progress, alpha=0.5, only_new_candidates=False, min_mask_presence_percent=min_mask_presence_percent)
-    except ValueError:
-        print(f"INVALID in video {imgs_in_path}")
-        min_mask_presence_percent = 0.01
-        all_selected_frames = select_next_candidates(keys, shrinkages=shrinkages, selections=selections, masks=masks, num_next_candidates=k, previously_chosen_candidates=previously_chosen_candidates, print_progress=print_progress, alpha=0.5, only_new_candidates=False, min_mask_presence_percent=min_mask_presence_percent)
+    new_selected_candidates = select_next_candidates(keys, shrinkages=shrinkages, selections=selections, masks=masks, num_next_candidates=k, previously_chosen_candidates=previously_chosen_candidates, print_progress=print_progress, alpha=alpha, only_new_candidates=True, min_mask_presence_percent=min_mask_presence_percent)
         
+    if masks_out_path is None:
+        # Remove the temporary directory
+        d.cleanup()
 
-    return all_selected_frames
+    return new_selected_candidates

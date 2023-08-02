@@ -1,6 +1,9 @@
+from dataclasses import dataclass, replace
 import os
 from os import path
+from typing import Optional
 
+import torch
 from torch.utils.data.dataset import Dataset
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode
@@ -10,6 +13,17 @@ from PIL import Image
 import numpy as np
 
 from dataset.range_transform import im_normalization
+
+
+@dataclass
+class Sample:
+    rgb: torch.Tensor
+    raw_image_pil: Image.Image
+    frame: str
+    save: bool
+    shape: tuple
+    need_resize: bool
+    mask: Optional[torch.Tensor] = None
 
 
 class VideoReader(Dataset):
@@ -54,12 +68,9 @@ class VideoReader(Dataset):
         self.size = size
 
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx) -> Sample:
         frame = self.frames[idx]
-        info = {}
         data = {}
-        info['frame'] = frame
-        info['save'] = (self.to_save is None) or (frame[:-4] in self.to_save)
 
         im_path = path.join(self.image_dir, frame)
         img = Image.open(im_path).convert('RGB')
@@ -75,7 +86,7 @@ class VideoReader(Dataset):
         if not os.path.exists(gt_path):
             gt_path = path.join(self.mask_dir, frame[:-4]+'.PNG')
 
-        data['raw_image_tensor'] = FT.to_tensor(img)  # for dataloaders it cannot be raw PIL.Image, only tensors
+        data['raw_image_pil'] = img  # for dataloaders it cannot be raw PIL.Image, only tensors
         img = self.im_transform(img)
 
         load_mask = self.use_all_masks or (gt_path == self.first_gt_path)
@@ -84,10 +95,15 @@ class VideoReader(Dataset):
             mask = np.array(mask, dtype=np.uint8)
             data['mask'] = mask
 
+        info = {}
+        info['save'] = (self.to_save is None) or (frame[:-4] in self.to_save)
+        info['frame'] = frame
         info['shape'] = shape
         info['need_resize'] = not (self.size < 0)
+
         data['rgb'] = img
-        data['info'] = info
+
+        data = Sample(**data, **info)
 
         return data
 
@@ -105,3 +121,10 @@ class VideoReader(Dataset):
 
     def __len__(self):
         return len(self.frames)
+    
+    @staticmethod
+    def collate_fn_identity(x):
+        if x.mask is not None:
+            return replace(x, mask=torch.tensor(x.mask))
+        else:
+            return x

@@ -204,6 +204,8 @@ class ResourceManager:
         self._save_info()
 
     def _save_info(self):
+        p_workspace_subdir = Path(self.workspace_info_file).parent
+        p_workspace_subdir.mkdir(parents=True, exist_ok=True)
         with open(self.workspace_info_file, 'wt') as f:
             data = {'references': sorted(self.references), 'num_objects': self._num_objects}
 

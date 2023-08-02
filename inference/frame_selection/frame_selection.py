@@ -97,7 +97,7 @@ def calculate_proposals_for_annotations_with_iterative_distance_cycle_MASKS(data
         return chosen_frames
 
 
-def select_next_candidates(keys: torch.Tensor, shrinkages, selections, masks: List[torch.tensor], num_next_candidates: int, previously_chosen_candidates: List[int] = (0,), print_progress=False, alpha=1.0, min_mask_presence_percent=0.25, device: torch.device = 'cuda:0', progress_callback=None, only_new_candidates=True, epsilon=0.5, h=30, w=54):
+def select_next_candidates(keys: torch.Tensor, shrinkages, selections, masks: List[torch.tensor], num_next_candidates: int, previously_chosen_candidates: List[int] = (0,), print_progress=False, alpha=0.5, min_mask_presence_percent=0.25, device: torch.device = 'cuda:0', progress_callback=None, only_new_candidates=True, epsilon=0.5):
     assert len(keys) == len(masks)
     assert len(keys) > 0
     # assert keys[0].shape[-2:] == masks[0].shape[-2:]
@@ -113,32 +113,44 @@ def select_next_candidates(keys: torch.Tensor, shrinkages, selections, masks: Li
 
     Parameters
     ----------
-    `keys` : `List[torch.Tensor]`
-        A list of "key" feature maps for all frames of the video.
-    `masks` : `List[torch.Tensor]`
+    keys : torch.Tensor
+        A list of "key" feature maps for all frames of the video (from XMem key encoder)
+    shrinkages : [Type]
+        A list of "shrinkage" feature maps for all frames of the video (from XMem key encoder). Used for similarity computation.
+    selections : [Type]
+        A list of "sellection" feature maps for all frames of the video (from XMem key encoder). Used for similarity computation.
+    masks : List[torch.Tensor]
         A list of masks for each frame (predicted or user-provided).
-    `num_next_candidates` : `int`
+    num_next_candidates : int
         The number of candidate frames to select.
-    `previously_chosen_candidates` : `List[int]`, optional
-        A list of previously chosen candidates. Default is (0,).
-    `print_progress` : `bool`, optional
+    previously_chosen_candidates : List[int], optional
+        A list of previously chosen candidate indices. Default is (0,).
+    print_progress : bool, optional
         Whether to print progress information. Default is False.
-    `alpha` : `float`, optional
-        The weight for cycle consistency in the candidate selection process. Default is 1.0.
-    `min_mask_presence_px` : `int`, optional
-        The minimum number of pixels for a valid mask. Default is 9.
+    alpha : float, optional
+        The weight for the masks in the candidate selection process, [0..1]. If 0 - masks will be ignored, the same frames will be chosen for the same video. If 1.0 - ONLY regions of the frames containing the mask will be compared. Default is 0.5.
+        If you trust your masks and want object-specific selections, set higher. If your predictions are really bad, set lower
+    min_mask_presence_percent : float, optional
+        The minimum percentage of pixels for a valid mask. Default is 0.25. Used to ignore frames with a tiny mask (when heavily occluded or just some random wrong prediction)
+    device : torch.device, optional
+        The device to run the computation on. Default is 'cuda:0'.
+    progress_callback : callable, optional
+        A callback function for progress updates. Used in GUI for a progress bar. Default is None.
+    only_new_candidates : bool, optional
+        Whether to return only the newly selected candidates or include previous as well. Default is True.
+    epsilon : float, optional
+        Threshold for foreground/background [0..1]. Default is 0.5
 
     Returns
     -------
-    `List[int]`
+    List[int]
         A list of indices of the selected candidate frames.
 
     Notes
     -----
     This function uses a dissimilarity measure and cycle consistency to select candidate frames for the user to annotate.
     The dissimilarity measure ensures that the selected frames are as diverse as possible, while the cycle consistency
-    ensures that the dissimilarity D(A->A)=0, while D(A->B)>0, and is larger the more different A and B are (pixel-wise).
-
+    ensures that the dissimilarity D(A->A)=0, while D(A->B)>0, and is larger the more different A and B are (pixel-wise, on feature map level - so both semantically and spatially).
     """
 
     with torch.no_grad():
@@ -152,7 +164,7 @@ def select_next_candidates(keys: torch.Tensor, shrinkages, selections, masks: Li
         invalid = 0
         for i, mask in enumerate(masks):
             mask_3ch = mask if mask.ndim == 3 else mask.unsqueeze(0)
-            mask_bin = mask_3ch.max(dim=0).values
+            mask_bin = mask_3ch.max(dim=0).values  # for multiple objects -> use them as one large mask (simplest solution)
             mask_size_px = (mask_bin > epsilon).sum()
 
             ratio = mask_size_px / mask_bin.numel() * 100
@@ -179,7 +191,7 @@ def select_next_candidates(keys: torch.Tensor, shrinkages, selections, masks: Li
 
             composite_keys.append(composite_key.to(dtype=keys[i].dtype, device=device))
 
-        print(f"INVALID: {invalid} / {len(masks)}")
+        print(f"Frames with invalid (empty or too small) masks: {invalid} / {len(masks)}")
         chosen_candidates = list(previously_chosen_candidates)
         chosen_candidate_keys = [composite_keys[i] for i in chosen_candidates]
 
@@ -212,7 +224,7 @@ def select_next_candidates(keys: torch.Tensor, shrinkages, selections, masks: Li
                         cycle_dissimilarity_score = F.relu(cycle_dissimilarity_per_pixel).sum() / cycle_dissimilarity_per_pixel.numel()
                         dissimilarities_across_mem_keys.append(cycle_dissimilarity_score)
 
-                    # filtering our existing or very similar frames
+                    # filtering out existing or very similar frames
                     # if the key has already been used or is very similar to at least one of the chosen candidates
                     # dissimilarity_min_across_all -> 0 (or close to)
                     dissimilarity_min_across_all = min(dissimilarities_across_mem_keys)

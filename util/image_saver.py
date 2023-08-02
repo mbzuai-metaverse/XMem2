@@ -1,5 +1,9 @@
+from multiprocessing import Process, Queue, Value
 import os
+from pathlib import Path
+import queue
 from time import perf_counter
+import time
 import cv2
 import numpy as np
 from PIL import Image
@@ -7,6 +11,8 @@ from PIL import Image
 import torch
 from dataset.range_transform import inv_im_trans
 from collections import defaultdict
+
+from inference.interact.interactive_utils import overlay_davis
 
 def tensor_to_numpy(image):
     image_np = (image.numpy() * 255).astype('uint8')
@@ -152,7 +158,7 @@ def _check_if_black_and_white(img: Image.Image):
 
     return False
 
-def create_overlay(img: Image.Image, mask: Image.Image, mask_alpha=0.5, color_if_black_and_white=(255, 0, 0)):  # all RGB
+def create_overlay(img: Image.Image, mask: Image.Image, mask_alpha=0.5, color_if_black_and_white=(255, 255, 255)):  # all RGB; Use (128, 0, 0) to mimic DAVIS color palette if you want
     mask = mask.convert('RGB')
     is_b_and_w  = _check_if_black_and_white(mask) 
 
@@ -177,4 +183,152 @@ def save_image(img: Image.Image, frame_name, video_name, general_dir_path, sub_d
     os.makedirs(this_out_path, exist_ok=True)
 
     img_save_path = os.path.join(this_out_path, frame_name[:-4] + extension)
-    cv2.imwrite(img_save_path, cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR))
+    img.save(img_save_path)
+    # cv2.imwrite(img_save_path, cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR))
+
+class ParallelImageSaver:
+    """
+    A class for parallel saving of masks and / or overlay images using multiple processes.
+    Composing overlays and saving images on the drive is pretty slow, this class does it in the background.
+
+    Parameters
+    ----------
+    general_output_path : str
+        The general path where images and masks will be saved.
+    vid_name : str
+        The name of the video or identifier for the output files.
+    overlay_color_if_b_and_w : tuple, optional
+        The RGB color to use for masks when there is only one object. Default is (255, 255, 255) (white).
+    max_queue_size : int, optional
+        The maximum size of the mask and overlay queues. Default is 200.
+
+    Methods
+    -------
+    save_mask(mask, frame_name)
+        Start saving a mask in the background.
+    save_overlay(orig_img, mask, frame_name)
+        Create an overlay given an image and a mask, and start saving it in the background.
+    qsize() -> Tuple(int, int)
+        Get the current size of the mask and overlay queues (how many frames are still left to process).
+    __enter__()
+        Enter the context manager and return the instance itself.
+    __exit__(exc_type, exc_value, exc_tb)
+        Exit the context manager and handle cleanup.
+    wait_for_jobs_to_finish(verbose=False)
+        Wait for all saving jobs to finish. Optional, will be called automatically in __exit__. Only recommened to use if you want to print verbose progress.
+
+    Examples
+    --------
+    # Example usage of ParallelImageSaver class
+    with ParallelImageSaver("/output/directory", "video_1", overlay_color_if_b_and_w=(100, 100, 100)) as image_saver:
+        image = Image.open("img.jpg")
+        mask = Image.open("mask.png")
+
+        # These will be saved in parallel in background processes
+        image_saver.save_mask(mask_image, "frame_000001")
+        image_saver.save_overlay(image, mask, "frame_000001")
+
+        image_saver.wait_for_jobs_to_finish(verbose=True)  # Optional
+
+    # The images will be saved in separate processes in the background.
+    """
+
+    def __init__(self, general_output_path: str, vid_name: str, overlay_color_if_b_and_w=(255, 255, 255), max_queue_size=200) -> None:
+        self._mask_queue = Queue(max_queue_size)
+        self._overlay_queue = Queue(max_queue_size)
+
+        self._mask_saver_worker = None
+        self._overlay_saver_worker = None
+
+        self._p_out = Path(general_output_path)
+        self._vid_name = vid_name
+        self._object_color = overlay_color_if_b_and_w
+        self._finished = Value('b', False)
+
+    def save_mask(self, mask: Image.Image, frame_name: str):
+        self._mask_queue.put((mask, frame_name, 'masks', '.png'))
+
+        if self._mask_saver_worker is None:
+            self._mask_saver_worker = Process(target=self._save_mask_fn)
+            self._mask_saver_worker.start()
+    
+    def save_overlay(self, orig_img: Image.Image, mask: Image.Image, frame_name: str):
+        self._overlay_queue.put((orig_img, mask, frame_name, 'overlay', '.jpg'))
+
+        if self._overlay_saver_worker is None:
+            self._overlay_saver_worker = Process(target=self._save_overlay_fn)
+            self._overlay_saver_worker.start()
+
+    def _save_mask_fn(self):
+        while True:
+            try:
+                mask, frame_name, subdir, extension = self._mask_queue.get_nowait()
+            except queue.Empty:
+                if self._finished.value:
+                    return
+                else:
+                    time.sleep(1)
+                    continue
+            save_image(mask, frame_name, self._vid_name, self._p_out, subdir, extension)
+
+    def _save_overlay_fn(self):
+        while True:
+            try:
+                orig_image, mask, frame_name, subdir, extension = self._overlay_queue.get_nowait()
+            except queue.Empty:
+                if self._finished.value:
+                    return
+                else:
+                    time.sleep(1)
+                    continue
+            overlaid_img = create_overlay(orig_image, mask, color_if_black_and_white=self._object_color)
+            save_image(overlaid_img, frame_name, self._vid_name, self._p_out, subdir, extension)
+
+    def qsize(self):
+        return self._mask_queue.qsize(), self._overlay_queue.qsize()
+    
+    def __enter__(self):
+        # No need to initialize anything here
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_tb):
+        if exc_type is not None:
+            # Just kill everything for cleaner exit
+            # Yeah, the child processed should be immediately killed if the main one exits, but just in case
+            if self._mask_saver_worker is not None:
+                self._mask_saver_worker.kill()
+            if self._mask_saver_worker is not None:
+                self._mask_saver_worker.kill()
+
+            raise exc_value
+        else:   
+            self.wait_for_jobs_to_finish(verbose=False)
+            if self._mask_saver_worker is not None:
+                self._mask_saver_worker.close()
+            
+            if self._overlay_saver_worker is not None:
+                self._overlay_saver_worker.close()
+    
+    def wait_for_jobs_to_finish(self, verbose=False):
+        # Optional, no need to call unless you want the verbose output
+        # Will be called automatically by the __exit__ method
+        self._finished.value = True  # No need for a lock, as it's a single write with multiple reads
+        
+        if not verbose:
+            if self._mask_saver_worker is not None:
+                self._mask_saver_worker.join()
+            
+            if self._overlay_saver_worker is not None:
+                self._overlay_saver_worker.join()
+                
+        else:
+            while True:
+                masks_left, overlays_left = self.qsize()
+                if max(masks_left, overlays_left) > 0:
+                    print(f"Finishing saving the results, {masks_left:>4d} masks and {overlays_left:>4d} overlays left.")
+                    time.sleep(1)
+                else:
+                    break
+            
+            self.wait_for_jobs_to_finish(verbose=False)  # just to `.join()` them both
+            print("All saving jobs finished")

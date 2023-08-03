@@ -184,7 +184,7 @@ def _create_dataloaders(imgs_in_path: Union[str, PathLike], masks_in_path: Union
     )
     
     # Just return the samples as they are; only using DataLoader for preloading frames from the disk
-    loader = DataLoader(vid_reader, batch_size=None, shuffle=False, num_workers=8, collate_fn=VideoReader.collate_fn_identity)
+    loader = DataLoader(vid_reader, batch_size=None, shuffle=False, num_workers=1, collate_fn=VideoReader.collate_fn_identity)
 
     vid_length = len(loader)
     # no need to count usage for LT if the video is not that long anyway
@@ -207,6 +207,8 @@ def _preload_permanent_memory(frames_to_put_in_permanent_memory: List[int], vid_
         sample = replace(sample, rgb=sample.rgb.cuda())
 
         # https://github.com/hkchengrex/XMem/issues/21 just make exhaustive = True
+        if sample.mask is None:
+            raise FileNotFoundError(f"Couldn't find mask {j}! Check that the filename is either the same as for frame {j} or follows the `frame_%06d.png` format if using a video file for input.")
         msk, labels = mapper.convert_mask(sample.mask, exhaustive=True)
         msk = torch.Tensor(msk).cuda()
 

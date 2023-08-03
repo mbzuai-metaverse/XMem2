@@ -145,7 +145,7 @@ class ResourceManager:
                 new_h = (h*self.size//min(w, h))
                 if new_w != w or new_h != h:
                     frame = cv2.resize(frame,dsize=(new_w,new_h),interpolation=cv2.INTER_AREA)
-            cv2.imwrite(path.join(self.image_dir, f'{frame_index:07d}.jpg'), frame)
+            cv2.imwrite(path.join(self.image_dir, f'frame_{frame_index:06d}.jpg'), frame)
             frame_index += 1
             bar.update(frame_index)
         bar.finish()

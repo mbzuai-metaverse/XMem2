@@ -7,13 +7,20 @@ if __name__ == '__main__':
     # import ssl
     # ssl._create_default_https_context = ssl._create_unverified_context
 
+    # Run inference on a video file with preselected annotated frames
+    video_path = 'example_videos/chair/chair.mp4'
+    masks_path = 'example_videos/chair/Annotations'
+    output_path = 'output/example_video_chair_from_mp4'
+    frames_with_masks = [5, 10, 15]
 
+    run_on_video(video_path, masks_path, output_path, frames_with_masks)
+
+    # Run inference on extracted .jpg frames with preselected annotations
     imgs_path = 'example_videos/caps/JPEGImages'
     masks_path = 'example_videos/caps/Annotations'
     output_path = 'output/example_video_caps'
     frames_with_masks = [0, 14, 33, 43, 66]
 
-    # Run inference with preselected annotations
     run_on_video(imgs_path, masks_path, output_path, frames_with_masks)
 
     # Get proposals for the next 3 best annotation candidates using previously predicted masks

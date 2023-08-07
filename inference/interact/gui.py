@@ -75,26 +75,34 @@ class App(QWidget):
 
         # some buttons
         self.play_button = QPushButton('Play Video')
+        self.play_button.setToolTip("Play/Pause the video")
         self.play_button.clicked.connect(self.on_play_video)
         self.commit_button = QPushButton('Commit')
+        self.commit_button.setToolTip("Finish current interaction with the mask")
         self.commit_button.clicked.connect(self.on_commit)
         self.save_reference_button = QPushButton('Save reference')
+        self.save_reference_button.setToolTip("Save current mask in the permanent memory.\nUsed by the model as a reference ground truth.")
         self.save_reference_button.clicked.connect(self.on_save_reference) 
         self.compute_candidates_button = QPushButton('Compute Annotation candidates')
+        self.compute_candidates_button.setToolTip("Get next <i>k</i> frames that you should annotate.")
         self.compute_candidates_button.clicked.connect(self.on_compute_candidates)
 
         self.full_run_button = QPushButton('FULL Propagate')
+        self.full_run_button.setToolTip("Clear the temporary memory, scroll to beginning and predict new masks for <b>all</b> the frames.")
         self.full_run_button.clicked.connect(partial(self.general_propagation_callback, propagation_type='full'))
 
         self.forward_run_button = QPushButton('Forward Propagate')
+        self.forward_run_button.setToolTip("Predict new masks for all the frames <b>starting</b> with the current one.")
         self.forward_run_button.clicked.connect(partial(self.general_propagation_callback, propagation_type='forward'))
         self.forward_run_button.setMinimumWidth(200)
 
         self.backward_run_button = QPushButton('Backward Propagate')
+        self.backward_run_button.setToolTip("Predict new masks for all the frames <b>before</b> with the current one.")
         self.backward_run_button.clicked.connect(partial(self.general_propagation_callback, propagation_type='backward'))
         self.backward_run_button.setMinimumWidth(200)
 
-        self.reset_button = QPushButton('Reset Frame')
+        self.reset_button = QPushButton('Delete Mask')
+        self.reset_button.setToolTip("Delete the mask for the current frames. <b>Cannot be undone</b>!")
         self.reset_button.clicked.connect(self.on_reset_mask)
 
         self.spacebar = QShortcut(QKeySequence(Qt.Key_Space), self)
@@ -148,8 +156,11 @@ class App(QWidget):
         self.curr_interaction = 'Free'
         self.interaction_group = QButtonGroup()
         self.radio_fbrs = QRadioButton('Click')
+        self.radio_fbrs.setToolTip("Clicks in/out of the current mask. <b>Careful - will delete existing mask</b>!")
         self.radio_s2m = QRadioButton('Scribble')
+        self.radio_s2m.setToolTip('Draw a line in/out of the current mask. Edits existing masks directly.')
         self.radio_free = QRadioButton('Free')
+        self.radio_free.setToolTip('Free drawing')
         self.interaction_group.addButton(self.radio_fbrs)
         self.interaction_group.addButton(self.radio_s2m)
         self.interaction_group.addButton(self.radio_free)
@@ -185,9 +196,13 @@ class App(QWidget):
 
         # Parameters setting
         self.clear_mem_button = QPushButton('Clear TEMP and LONG memory')
+        self.clear_mem_button.setToolTip("Temporary and long-term memory can have features from the previous model run.<br>"
+                                         "If you had errors in the predictions, they might influence new masks.<br>"
+                                         "So for a new model run either clean the memory or just use <i>FULL propagate</i>.")
         self.clear_mem_button.clicked.connect(self.on_clear_memory)
 
         self.work_mem_gauge, self.work_mem_gauge_layout = create_gauge('Working memory size')
+        self.work_mem_gauge.setToolTip("Temporary and Permanent memory together.")
         self.long_mem_gauge, self.long_mem_gauge_layout = create_gauge('Long-term memory size')
         self.gpu_mem_gauge, self.gpu_mem_gauge_layout = create_gauge('GPU mem. (all processes, w/ caching)')
         self.torch_mem_gauge, self.torch_mem_gauge_layout = create_gauge('GPU mem. (used by torch, w/o caching)')
@@ -214,9 +229,11 @@ class App(QWidget):
 
         # import mask/layer
         self.import_mask_button = QPushButton('Import mask')
+        self.import_mask_button.setToolTip("Import an existing .png file with a mask for a current frame.\nReplace existing mask.")
         self.import_mask_button.clicked.connect(self.on_import_mask)
 
         self.import_all_masks_button = QPushButton('Import ALL masks')
+        self.import_all_masks_button.setToolTip("Import a list of mask for some or all frames in the video.\nIf more than 10 are imported, the invididual confirmations will not be shown.")
         self.import_all_masks_button.clicked.connect(self.on_import_all_masks)
         self.import_layer_button = QPushButton('Import layer')
         self.import_layer_button.clicked.connect(self.on_import_layer)
@@ -340,11 +357,18 @@ class App(QWidget):
 
         candidates_area = QVBoxLayout()
         self.candidates_min_mask_size_edit = QLineEdit()
+        self.candidates_min_mask_size_edit.setToolTip("Minimal size a mask should have to be considered, % of the total image size."
+                                                      "\nIf it's smaller than the value specified, the frame will be ignored."
+                                                      "\nUsed to filter out \"junk\" frames or frames with very heavy occlusions.")
         float_validator = QRegExpValidator(QRegExp(r"^(100(\.0+)?|[1-9]?\d(\.\d+)?|0(\.\d+)?)$"))
         self.candidates_min_mask_size_edit.setValidator(float_validator)
         self.candidates_min_mask_size_edit.setText("0.25")
         self.candidates_k_slider = NamedSlider("k", 1, 20, 1, default=5)
+        self.candidates_k_slider.setToolTip("How many annotation candidates to select.")
         self.candidates_alpha_slider = NamedSlider("α", 0, 100, 1, default=50, multiplier=0.01, min_text='Frames', max_text='Masks')
+        self.candidates_alpha_slider.setToolTip("Target importance."
+                                                "<br>If <b>0</b> the candidates will be the same regardless of which object is being segmented."
+                                                "<br>If <b>1</b> the only part of the image considered will be the one occupied by the mask.")
         candidates_area.addWidget(QLabel("Min mask size, % of the total image size, 0-100"))
         candidates_area.addWidget(self.candidates_min_mask_size_edit)
         candidates_area.addWidget(QLabel("Candidates calculation hyperparameters"))

@@ -28,9 +28,6 @@ from inference.data.video_reader import Sample, VideoReader
 from inference.data.mask_mapper import MaskMapper
 from inference.frame_selection.frame_selection_utils import extract_keys, get_determenistic_augmentations
 
-from profilehooks import profile
-
-# @profile(stdout=False, immediate=False, filename='run_on_video_aug_2023_parallel_composite_and_saving.profile')
 def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_out_path,
                         original_memory_mechanism=False,
                         compute_iou=False, 

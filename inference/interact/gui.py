@@ -1189,8 +1189,6 @@ class App(QWidget):
                         self.scroll_to(i)
                         self.on_import_mask(str(p_f), ask_confirmation=True)
     
-    from profilehooks import profile
-    @profile(stdout=False, immediate=False, filename='on_import_mask.profile')
     def on_import_mask(self, mask_file_path=None, ask_confirmation=True):
         if mask_file_path:
             file_name = mask_file_path

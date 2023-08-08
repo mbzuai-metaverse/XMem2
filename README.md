@@ -178,38 +178,31 @@ Separate sequences and masks are available here: [[Google Drive]](TODO)
 
 PUMaVOS `.zip` download link: [[Google Drive]](TODO)
 
-<style>
-  .centered {
-    text-align: center;
-    margin-left: auto;
-    margin-right: auto;
-  }
-</style>
 
-<table class="centered">
+<table style="text-align: center; margin-left: auto; margin-right: auto;">
 <tr>
     <td class="centered">
     <div>
         <img src="docs/resources/billie_shoes_square.gif" alt="Billie Shoes">
-        <p>Shoes <br/> (<i>"billie_shoes" sequence</i>)</p>
+        <p align="center">Shoes <br/> (<i>"billie_shoes" video</i>)</p>
     </div>
     </td>
     <td class="centered">
     <div>
         <img src="docs/resources/chair_short_square.gif" alt="Short Chair">
-        <p>Reflections <br/> <i>("chair" sequence)</p>
+        <p align="center">Reflections <br/> <i>("chair" video)</p>
     </div>
     </td>
     <td class="centered">
     <div>
         <img src="docs/resources/dog_tail_square.gif" alt="Dog Tail">
-        <p>Body parts <br/> (<i>"dog_tail" sequence</i>)</p>
+        <p align="center">Body parts <br/> (<i>"dog_tail" video</i>)</p>
     </div>
     </td>
     <td class="centered">
     <div>
         <img src="docs/resources/pants_workout_square.gif" alt="Workout Pants">
-        <p>Deformable objects <br/> (<i>"pants_workout" sequence</i>)</p>
+        <p align="center">Deformable objects <br/> (<i>"pants_workout" video</i>)</p>
     </div>
     </td>
 </tr>
@@ -217,25 +210,25 @@ PUMaVOS `.zip` download link: [[Google Drive]](TODO)
     <td class="centered">
     <div>
         <img src="docs/resources/skz_square.gif" alt="SKZ">
-        <p>Similar objects, occlusion <br/> (<i>"skz" sequence</i>)</p>
+        <p align="center">Similar objects, occlusion <br/> (<i>"skz" video</i>)</p>
     </div>
     </td>
     <td class="centered">
     <div>
         <img src="docs/resources/tattoo_square.gif" alt="Tattoo">
-        <p> Tattos/patterns <br/> (<i>"tattoo" sequence</i>)</p>
+        <p align="center"> Tattos/patterns <br/> (<i>"tattoo" video</i>)</p>
     </div>
     </td>
     <td class="centered">
     <div>
         <img src="docs/resources/turkish_ice_cream_square.gif" alt="Turkish Ice Cream">
-        <p>Quick motion <br/> (<i>"turkish_ice_cream" sequence</i>)</p>
+        <p align="center">Quick motion <br/> (<i>"turkish_ice_cream" video</i>)</p>
     </div>
     </td>
     <td class="centered">
     <div>
         <img src="docs/resources/vlog_square.gif" alt="Vlog">
-        <p> Multi-object parts <br/> (<i>"vlog" sequence</i>)</p>
+        <p align="center"> Multi-object parts <br/> (<i>"vlog" video</i>)</p>
     </div>
     </td>
 </tr>

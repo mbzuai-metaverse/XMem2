@@ -183,27 +183,27 @@ Separate sequences and masks are available here: [[Google Drive]](TODO)
 PUMaVOS `.zip` download link: [[Google Drive]](TODO)
 
 
-<table>
+<table width="100%">
 <tr>
-    <td>
+    <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/billie_shoes_square.gif" alt="Billie Shoes"></p>
         <p align="center">Shoes <br/> (<i>"billie_shoes" video</i>)</p>
     </div>
     </td>
-    <td>
+    <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/chair_short_square.gif" alt="Short Chair"></p>
         <p align="center">Reflections <br/> <i>("chair" video)</p>
     </div>
     </td>
-    <td>
+    <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/dog_tail_square.gif" alt="Dog Tail"></p>
         <p align="center">Body parts <br/> (<i>"dog_tail" video</i>)</p>
     </div>
     </td>
-    <td>
+    <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/pants_workout_square.gif" alt="Workout Pants"></p>
         <p align="center">Deformable objects <br/> (<i>"pants_workout" video</i>)</p>
@@ -211,25 +211,25 @@ PUMaVOS `.zip` download link: [[Google Drive]](TODO)
     </td>
 </tr>
 <tr>
-    <td>
+    <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/skz_square.gif" alt="SKZ"></p>
         <p align="center">Similar objects, occlusion <br/> (<i>"skz" sequence</i>)</p>
     </div>
     </td>
-    <td>
+    <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/tattoo_square.gif" alt="Tattoo"></p>
         <p align="center"> <br/> Tattos/patterns <br/> (<i>"tattoo" sequence</i>)</p>
     </div>
     </td>
-    <td>
+    <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/turkish_ice_cream_square.gif" alt="Turkish Ice Cream"></p>
         <p align="center">Quick motion <br/> (<i>"turkish_ice_cream" sequence</i>)</p>
     </div>
     </td>
-    <td>
+    <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/vlog_square.gif" alt="Vlog"> </p>
         <p align="center"> <br/> Multi-object parts <br/> (<i>"vlog" sequence</i>)</p>

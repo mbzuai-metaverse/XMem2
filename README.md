@@ -8,7 +8,7 @@
 
 [[arXiv]](https://arxiv.org/abs/2307.15958) [[PDF]](https://arxiv.org/pdf/2307.15958.pdf) [[Project Page TODO]](https://hkchengrex.github.io/XMem/)
 
-$^\dagger$ These authors equally contributed to the work
+$^\dagger$ These authors equally contributed to the work.
 ## Demo
 
 Inspired by movie industry use cases, **XMem++** is an Interactive Video Segmentation Tool that takes a few user-provided segmentation masks and segments very challenging use cases with minimal human supervision, such as 
@@ -30,126 +30,218 @@ https://github.com/max810/XMem2/assets/29955120/63e6704c-3292-4690-970e-818ab295
 ### [[Failure Cases]](docs/FAILURE_CASES.md)
 
 ## Overview
+
+| ![Demo GUI](docs/resources/gui_demo.jpg) | 
+|:--:| 
+| *XMem++ updated GUI* |
+
 **XMem++** is built on top of [XMem](https://github.com/hkchengrex/XMem) by [Ho Kei Cheng](https://hkchengrex.github.io/), [Alexander Schwing](https://www.alexander-schwing.de/) and improves upon it by adding the following:
 1. [Permanent memory module TODO link]() that greatly improves the model's accuracy with just a few manual annotations provided (see results)
 2. [Annotation candidate selection algorithm]() that selects $k$ next best frames for the user to provide annotations for.
-3. We used **XMem++** to collect and annotate **PUMaVOS** - 23 video dataset with unusual and challenging annotation scenarios at 480p, 30FPS. See [Dataset](#dataset)
+3. We used **XMem++** to collect and annotate **PUMaVOS** - 23 video dataset with unusual and challenging annotation scenarios at 480p, 30FPS. See [Dataset](#pumavos-dataset)
 
 In addition to the following features:
 * Improved GUI - references tab to see/edit what frames are in the permanent memory, candidates tab - shows candidate frames for annotation predicted by the algorithm and more.
 * Negligible speed and memory usage overhead compared to XMem (if using few manually provided annotations)
-* [Separate cmd script for doing segmentation on video](inference/run_on_video.py) - now you can use both GUI and Python interface easily.
+* [Easy to use Python interface](docs/PYTHON_API.md) - now you can use **XMem++** as a GUI application and a Python library easily.
 * 30+ FPS on 480p footage on RTX 3090
 * Come with a GUI (modified from [MiVOS](https://github.com/hkchengrex/MiVOS/tree/MiVOS-STCN)).
 
-_We use the original weights provided by XMem, the model has not been retrained or fine-tuned in any way._
-
-### How to use
-#### Install the environment
+## Getting started
+### Environment setup
 First, install the required Python packages:
 
-TODO conda install whatever
+* Python 3.8+
+* PyTorch 1.11+ (See [PyTorch](https://pytorch.org/) for installation instructions)
+* `torchvision` corresponding to the PyTorch version
+* OpenCV (try `pip install opencv-python`)
+* Others: `pip install -r requirements.txt`
+* To use the GUI: `pip install -r requirements_demo.txt`
 
-#### Use the GUI
-To run the GUI:
-```
-pass
-```
+### Download weights
 
-#### Use **XMem++** Python interface
-The following examples of the Python interface usage are taken from [main.py](main.py). 
+Download the pretrained models either using `./scripts/download_models.sh`, or manually and put them in `./saves` (create the folder if it doesn't exist). You can download them from [[XMem GitHub]](https://github.com/hkchengrex/XMem/releases/tag/v1.0) or [[XMem Google Drive]](https://drive.google.com/drive/folders/1QYsog7zNzcxGXTGBzEhMUg8QVJwZB6D1?usp=sharing).
 
-To run segmentation on a list of video frames (`.jpg`) with preselected annotations:
+## Use the GUI
+To run the GUI on a new video:
 ```Python
-from inference.run_on_video import run_on_video
-
-imgs_path = 'example_videos/caps/JPEGImages'
-masks_path = 'example_videos/caps/Annotations'   # Should contain annotation masks for frames in `frames_with_masks`
-output_path = 'output/example_video_caps'
-frames_with_masks = [0, 14, 33, 43, 66]  # indices of frames for which there is an annotation mask
-
-run_on_video(imgs_path, masks_path, output_path, frames_with_masks)
+python interactive-demo.py --video example_videos/chair/chair.mp4
 ```
 
-To run segmentation on a video file (like `.mp4`) with preselected annotations:
+To run on a list of images:
 ```Python
-from inference.run_on_video import run_on_video
-
-video_path = 'example_videos/chair/chair.mp4'
-masks_path = 'example_videos/chair/Annotations'  # Should contain annotation masks for rames in `frames_with_masks`
-output_path = 'output/example_video_chair_from_mp4'
-frames_with_masks = [5, 10, 15]  # indices of frames for which there is an annotation mask
-
-run_on_video(video_path, masks_path, output_path, frames_with_masks)
+python interactive-demo.py --images example_videos/chair/JPEGImages
 ```
 
-If after this you want to get proposals which frames to annotate next, add the following lines:
+Both of these commands will create a folder for the current vide in workspace folder (default is `.workspace`) and save all the masks and predictions there.
+
+
+To keep editing an existing project in a workspace, run the following command:
 ```Python
-from inference.run_on_video import select_k_next_best_annotation_candidates
-# Get proposals for the next 3 best annotation candidates using previously predicted masks
-next_candidates = select_k_next_best_annotation_candidates(imgs_path, masks_path, output_path, previously_chosen_candidates=frames_with_masks, use_previously_predicted_masks=True)
-
-print("Next candidates for annotations are: ")
-for idx in next_candidates:
-    print(f"\tFrame {idx}")
+python interactive-demo.py --workspace ./workspace/<video_name>
 ```
 
-If you don't have previous predictions, just put `use_previously_predicted_masks=False`, the algorithm will run a new inference internally
+If you have more than 1 object make sure to add `--num-objects <num_objects>` to the commands above the **first time you create a project**. It will saved in the project file after that for your convenience =)
 
-If you have a fully-labeled video and want to run **XMem++** and compute IoU, run the following code:
+Like this:
 ```Python
-# Run inference on a video with all annotations provided, compute IoU
-import os
-import random
-from inference.run_on_video import run_on_video
-
-imgs_path = 'example_videos/chair/JPEGImages'
-masks_path = 'example_videos/chair/Annotations'
-output_path = 'output/example_video_chair'
-
-num_frames = len(os.listdir(imgs_path))
-frames_with_masks = random.sample(range(0, num_frames), 3)  # Give 3 random masks as GT annotations
-
-stats = run_on_video(imgs_path, masks_path, output_path, frames_with_masks, compute_iou=True)  #  stats: pandas DataFrame
-mean_iou = stats[stats['iou'] != -1]['iou'].mean()  # -1 is for GT annotations, we just skip them
-print(f"Average IoU: {mean_iou}")  # Should be 90%+ as a sanity check
+python interactive-demo.py --images example_videos/caps/JPEGImages --num-objects 2
 ```
 
-### Training
-For training, refer to the [original XMem repo](https://github.com/hkchengrex/XMem/blob/main/docs/TRAINING.md) (since we are using the same model with the same weights)
+For more information visit [DEMO.md](docs/DEMO.md)
 
-### Methodology
+## Use **XMem++** Python interface
+See [Python API](docs/PYTHON_API.md) or [main.py](main.py) for examples and explanations.
 
-![xmem_pp_worflow_explanation](https://github.com/max810/XMem2/assets/29955120/b97f8d7b-8c59-48fd-8122-834ba04c1696)
+## Importing existing projects
 
-Just like XMem (VOS), we use the two types of memory inspired by the Atkinson-Shiffrin human memory model - working memory and long-term memory. The first one stores recent convolutional feature maps with rich details, and the other - heavily compressed features for long-term dependency.
+If you already have existing frames and/or masks from other tools, you can import them into the workspace with the following command:
 
-However, existing segmentation methods (XMem, TBD, AoT, DeAOT, STCN, etc.) that are using memory mechanisms to predict the segmentation mask for the current frame, typically process frames one by one, and thus suffer from a common issue - "jumps" in visual quality, when the new ground truth annotation is encountered in the video
+```Python
+python import_existing.py  --name <name_of_the_project_to_create> [--images <path_to_folder_with_frames>] [--mask <path_to_folder_with_masks>]
+```
 
-![interpolation](https://github.com/max810/XMem2/assets/29955120/456d907e-881c-4a07-9aed-808f855e209a)
+_One of `--images`, `--masks` (or both) should be specified_.
+
+_You can also specify `--size <int>` to resize the frames on-the-fly (to smaller side, preserving ratio)_
+
+This will do the following:
+1. Create a project directory inside your woskpace with the name from the `--name` argument.
+2. Copy your given images/masks inside.
+3. Convert RGB masks to necessary color palette (XMem++ uses [DAVIS color palette](util/palette.py), where each new object=new color).
+4. Resize the frames if specified with the `--size` argument.
+## Data format
+- Images are expected to use .jpg format.
+- Masks are RGB .png files using the [DAVIS color palette](util/palette.py), saved as a palette image (`Image.convert('P')` in [Pillow Image Module](https://pillow.readthedocs.io/en/latest/reference/Image.html#PIL.Image.Image.convert))). If your masks don't follow this color palette, just use run `python import_existing.py` to automatically convert them (see [previous section](#importing-existing-projects)).
+- When using `run_on_video.py` with a video_file, masks should be named `frame_%06d.<ext>` starting at `0`: `frame_000000.jpg, frame_0000001.jpg, ...` **This is preferred filename for any use case**.
+
+More information and convenience commands are provided in [Data format help](docs/DATA_FORMAT_HELP.md)
+
+## Training
+For training, refer to the [original XMem repo](https://github.com/hkchengrex/XMem/blob/main/docs/TRAINING.md).
+
+_We use the original weights provided by XMem, the model has not been retrained or fine-tuned in any way._
+
+_Feel free to fine-tune XMem and replace the weights in this project._
+
+## Methodology
+
+| ![XMem++ architecture overview with comments](docs/resources/architecture_explanations.jpg) | 
+|:--:| 
+| *XMem++ architecture overview with comments* |
+
+XMem++ is a **memory-based** interactive segmentation model - this means it uses a set of reference frames/feature maps and their corresponding masks, either predicted or given as ground truth if available, to predict masks for new frames based on **how similar they are to already processed frames** with known segmentation.
+
+Just like XMem, we use the two types of memory inspired by the Atkinson-Shiffrin human memory model - working memory and long-term memory. The first one stores recent convolutional feature maps with rich details, and the other - heavily compressed features for long-term dependencies across frames that are far apart in the video.
+
+However, existing segmentation methods ([XMem](https://arxiv.org/abs/2207.07115), [TBD](https://arxiv.org/abs/2207.06953), [AoT](https://arxiv.org/abs/2106.02638), [DeAOT](https://arxiv.org/abs/2210.09782), [STCN](https://arxiv.org/abs/2106.05210), etc.) that are using memory mechanisms to predict the segmentation mask for the current frame, typically process frames one by one, and thus suffer from a common issue - "jumps" in visual quality, when the new ground truth annotation is encountered in the video
+
+| ![Why permanent memory helps](docs/resources/why_permanent_memory_helps.jpg) | 
+|:--:| 
+| *Why permanent memory helps - having multiple annotations from different parts of the video in permanent memory allows the model to __smoothly interpolate__ between different scenes/appearances of the target object* |
 
 To solve this, we propose a new **permanent memory module** - same in implementations as XMem's working memory - we take all the annotations the user provides, process them and put in the permanent memory module. This way **every** ground truth annonation provided by the user can influence **any** frame in the video regardless where it is located. This increases overall segmentation accuracy and allows the model to smoothly interpolate between different appearences of the object (see figure above).
 
-### Frame annotation candidate selector
+For mode details refer to our arxiv page [[Arxiv]](https://arxiv.org/abs/2307.15958v1) [[PDF]](https://arxiv.org/pdf/2307.15958v1), Section 3.2.
+## Frame annotation candidate selector
 
 We propose a simple algorithm to select which frames the user should annotate next to maximize performance and save time. It is based on an idea of **diversity** - to select the frames that capture the most variety of the target object's appearance - to **maximize the information** the network will get with them annotated.
 
 It has the following properties:
 - **Target-specific**: Choice of frames depends on which object you are trying to segment. 
 
-![frame_selector_2](https://github.com/max810/XMem2/assets/29955120/f040d99b-4680-4e6f-be89-b05c1e70c4a7)
+<img src="docs/resources/frame_selector_showcase.jpg" width="45%" style='padding-left: 40px'>
 
 - **Model-generic**: it operates on convolutional feature maps and pixel-similarity metric (negative $\mathcal{L}_{2}$ distance), so is not specific to **XMem++**.
 - **No restrictions on segmentation targets**: Some methods try to automatically estimate the visual quality of the segmentation, which puts an implicit assumption **that good-quality segmentation follows low-level image ques (edges, corners, etc.)**. However, this is not true when segmenting parts of objects, see the :
 
-![broken_quality](https://github.com/max810/XMem2/assets/29955120/2c1246b6-e2da-4cfe-a011-8c646635493b)
+<img src="docs/resources/visual_quality_vs_assessed_quality.jpg" width="45%" style='padding-left: 40px'>
 
-- **Deterministic and simple**: It orders remaining frames by a **diversity measure** and the user just picks the top-$k$ most diverse candidates.
-
-### Dataset
+- **Deterministic and simple**: It orders remaining frames by a **diversity measure** and the user just picks the top $k$ most diverse candidates.
 
 
+For mode details refer to our arxiv page [[Arxiv]](https://arxiv.org/abs/2307.15958v1) [[PDF]](https://arxiv.org/pdf/2307.15958v1), Section 3.3 and Appendix D.
+## PUMaVOS Dataset
 
-### Citation
+We used XMem++ to collect and annotate a dataset of challenging and practical use cases inspired by the movie production industry.
+
+**Partial and Unusual Masks for Video Object Segmentation (PUMaVOS)** dataset has the following properties:
+- **23** videos, **19770** densely-annotated frames;
+- Covers complex practical use cases such as object parts, frequent occlusions, fast motion, deformable objects and more;
+- Average length of the video is **659 frames** or **28s**, with the longer ones spanning **1min**;
+- Fully densely annotated at 30FPS;
+- Benchmark-oriented: no separation into training/test, designed to be as diverse as possible to test your models;
+- 100% open and free to download.
+
+### Download
+Separate sequences and masks are available here: [[Google Drive]](TODO)
+
+PUMaVOS `.zip` download link: [[Google Drive]](TODO)
+
+<style>
+  .centered {
+    text-align: center;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style>
+
+<table class="centered">
+<tr>
+    <td class="centered">
+    <div>
+        <img src="docs/resources/billie_shoes_square.gif" alt="Billie Shoes">
+        <p>Shoes <br/> (<i>"billie_shoes" sequence</i>)</p>
+    </div>
+    </td>
+    <td class="centered">
+    <div>
+        <img src="docs/resources/chair_short_square.gif" alt="Short Chair">
+        <p>Reflections <br/> <i>("chair" sequence)</p>
+    </div>
+    </td>
+    <td class="centered">
+    <div>
+        <img src="docs/resources/dog_tail_square.gif" alt="Dog Tail">
+        <p>Body parts <br/> (<i>"dog_tail" sequence</i>)</p>
+    </div>
+    </td>
+    <td class="centered">
+    <div>
+        <img src="docs/resources/pants_workout_square.gif" alt="Workout Pants">
+        <p>Deformable objects <br/> (<i>"pants_workout" sequence</i>)</p>
+    </div>
+    </td>
+</tr>
+<tr>
+    <td class="centered">
+    <div>
+        <img src="docs/resources/skz_square.gif" alt="SKZ">
+        <p>Similar objects, occlusion <br/> (<i>"skz" sequence</i>)</p>
+    </div>
+    </td>
+    <td class="centered">
+    <div>
+        <img src="docs/resources/tattoo_square.gif" alt="Tattoo">
+        <p> Tattos/patterns <br/> (<i>"tattoo" sequence</i>)</p>
+    </div>
+    </td>
+    <td class="centered">
+    <div>
+        <img src="docs/resources/turkish_ice_cream_square.gif" alt="Turkish Ice Cream">
+        <p>Quick motion <br/> (<i>"turkish_ice_cream" sequence</i>)</p>
+    </div>
+    </td>
+    <td class="centered">
+    <div>
+        <img src="docs/resources/vlog_square.gif" alt="Vlog">
+        <p> Multi-object parts <br/> (<i>"vlog" sequence</i>)</p>
+    </div>
+    </td>
+</tr>
+</table>
+
+
+## Citation
 
 Contact: <maksym.bekuzarov@gmail.com>, <bermudezarii@gmail.com>

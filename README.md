@@ -214,13 +214,13 @@ PUMaVOS `.zip` download link: [[Google Drive]](TODO)
     <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/skz_square.gif" alt="SKZ"></p>
-        <p align="center">Similar objects, occlusion <br/> (<i>"skz" sequence</i>)</p>
+        <p align="center">Similar objects, occlusion <br/> (<i>"skz" sequence</i>) <br/> </p>
     </div>
     </td>
     <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/tattoo_square.gif" alt="Tattoo"></p>
-        <p align="center"> <br/> Tattos/patterns <br/> (<i>"tattoo" sequence</i>)</p>
+        <p align="center">Tattos/patterns <br/> (<i>"tattoo" sequence</i>) <br/> </p>
     </div>
     </td>
     <td width="25%">
@@ -232,7 +232,7 @@ PUMaVOS `.zip` download link: [[Google Drive]](TODO)
     <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/vlog_square.gif" alt="Vlog"> </p>
-        <p align="center"> <br/> Multi-object parts <br/> (<i>"vlog" sequence</i>)</p>
+        <p align="center"> Multi-object parts <br/> (<i>"vlog" sequence</i>) <br/> </p>
     </div>
     </td>
 </tr>

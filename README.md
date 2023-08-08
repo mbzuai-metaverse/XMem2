@@ -151,14 +151,14 @@ It has the following properties:
 - **Target-specific**: Choice of frames depends on which object you are trying to segment. 
 
 <p align="center">
-    <img src="docs/resources/frame_selector_showcase.jpg" width="60%" />
+    <img src="docs/resources/frame_selector_showcase.jpg" width="70%"/>
 </p>
 
 - **Model-generic**: it operates on convolutional feature maps and pixel-similarity metric (negative $\mathcal{L}_{2}$ distance), so is not specific to **XMem++**.
 - **No restrictions on segmentation targets**: Some methods try to automatically estimate the visual quality of the segmentation, which puts an implicit assumption **that good-quality segmentation follows low-level image ques (edges, corners, etc.)**. However, this is not true when segmenting parts of objects, see the :
 
 <p align="center">
-    <img src="docs/resources/visual_quality_vs_assessed_quality.jpg" width="50%">
+    <img src="docs/resources/visual_quality_vs_assessed_quality.jpg" width="70%" />
 </p>
 
 - **Deterministic and simple**: It orders remaining frames by a **diversity measure** and the user just picks the top $k$ most diverse candidates.

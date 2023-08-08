@@ -188,25 +188,25 @@ PUMaVOS `.zip` download link: [[Google Drive]](TODO)
     <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/billie_shoes_square.gif" alt="Billie Shoes"></p>
-        <p align="center">Shoes <br/> (<i>"billie_shoes" video</i>)</p>
+        <p align="center">Shoes <br/> (<i>"billie_shoes" sequence</i>)</p>
     </div>
     </td>
     <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/chair_short_square.gif" alt="Short Chair"></p>
-        <p align="center">Reflections <br/> <i>("chair" video)</p>
+        <p align="center">Reflections <br/> <i>("chair" sequence)</p>
     </div>
     </td>
     <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/dog_tail_square.gif" alt="Dog Tail"></p>
-        <p align="center">Body parts <br/> (<i>"dog_tail" video</i>)</p>
+        <p align="center">Body parts <br/> (<i>"dog_tail" sequence</i>)</p>
     </div>
     </td>
     <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/pants_workout_square.gif" alt="Workout Pants"></p>
-        <p align="center">Deformable objects <br/> (<i>"pants_workout" video</i>)</p>
+        <p align="center">Deformable objects <br/> (<i>"pants_workout" sequence</i>)</p>
     </div>
     </td>
 </tr>

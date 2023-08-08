@@ -150,12 +150,16 @@ We propose a simple algorithm to select which frames the user should annotate ne
 It has the following properties:
 - **Target-specific**: Choice of frames depends on which object you are trying to segment. 
 
-<img src="docs/resources/frame_selector_showcase.jpg" width="45%" style='padding-left: 40px'>
+<p align="center">
+    <img src="docs/resources/frame_selector_showcase.jpg" width="60%" />
+</p>
 
 - **Model-generic**: it operates on convolutional feature maps and pixel-similarity metric (negative $\mathcal{L}_{2}$ distance), so is not specific to **XMem++**.
 - **No restrictions on segmentation targets**: Some methods try to automatically estimate the visual quality of the segmentation, which puts an implicit assumption **that good-quality segmentation follows low-level image ques (edges, corners, etc.)**. However, this is not true when segmenting parts of objects, see the :
 
-<img src="docs/resources/visual_quality_vs_assessed_quality.jpg" width="45%" style='padding-left: 40px'>
+<p align="center">
+    <img src="docs/resources/visual_quality_vs_assessed_quality.jpg" width="50%">
+</p>
 
 - **Deterministic and simple**: It orders remaining frames by a **diversity measure** and the user just picks the top $k$ most diverse candidates.
 
@@ -210,25 +214,25 @@ PUMaVOS `.zip` download link: [[Google Drive]](TODO)
     <td class="centered">
     <div>
         <img src="docs/resources/skz_square.gif" alt="SKZ">
-        <p align="center">Similar objects, occlusion <br/> (<i>"skz" video</i>)</p>
+        <p align="center">Similar objects, occlusion <br/> (<i>"skz" sequence</i>)</p>
     </div>
     </td>
     <td class="centered">
     <div>
         <img src="docs/resources/tattoo_square.gif" alt="Tattoo">
-        <p align="center"> Tattos/patterns <br/> (<i>"tattoo" video</i>)</p>
+        <p align="center"> <br/> Tattos/patterns <br/> (<i>"tattoo" sequence</i>)</p>
     </div>
     </td>
     <td class="centered">
     <div>
         <img src="docs/resources/turkish_ice_cream_square.gif" alt="Turkish Ice Cream">
-        <p align="center">Quick motion <br/> (<i>"turkish_ice_cream" video</i>)</p>
+        <p align="center">Quick motion <br/> (<i>"turkish_ice_cream" sequence</i>)</p>
     </div>
     </td>
     <td class="centered">
     <div>
         <img src="docs/resources/vlog_square.gif" alt="Vlog">
-        <p align="center"> Multi-object parts <br/> (<i>"vlog" video</i>)</p>
+        <p align="center"> <br/> Multi-object parts <br/> (<i>"vlog" sequence</i>)</p>
     </div>
     </td>
 </tr>

@@ -64,12 +64,12 @@ Download the pretrained models either using `./scripts/download_models.sh`, or m
 
 ## Use the GUI
 To run the GUI on a new video:
-```Python
+```Bash
 python interactive-demo.py --video example_videos/chair/chair.mp4
 ```
 
 To run on a list of images:
-```Python
+```Bash
 python interactive-demo.py --images example_videos/chair/JPEGImages
 ```
 
@@ -77,14 +77,14 @@ Both of these commands will create a folder for the current vide in workspace fo
 
 
 To keep editing an existing project in a workspace, run the following command:
-```Python
+```Bash
 python interactive-demo.py --workspace ./workspace/<video_name>
 ```
 
 If you have more than 1 object make sure to add `--num-objects <num_objects>` to the commands above the **first time you create a project**. It will saved in the project file after that for your convenience =)
 
 Like this:
-```Python
+```Bash
 python interactive-demo.py --images example_videos/caps/JPEGImages --num-objects 2
 ```
 
@@ -97,7 +97,7 @@ See [Python API](docs/PYTHON_API.md) or [main.py](main.py) for examples and expl
 
 If you already have existing frames and/or masks from other tools, you can import them into the workspace with the following command:
 
-```Python
+```Bash
 python import_existing.py  --name <name_of_the_project_to_create> [--images <path_to_folder_with_frames>] [--mask <path_to_folder_with_masks>]
 ```
 
@@ -169,20 +169,6 @@ For mode details refer to our arxiv page [[Arxiv]](https://arxiv.org/abs/2307.15
 
 We used XMem++ to collect and annotate a dataset of challenging and practical use cases inspired by the movie production industry.
 
-**Partial and Unusual Masks for Video Object Segmentation (PUMaVOS)** dataset has the following properties:
-- **23** videos, **19770** densely-annotated frames;
-- Covers complex practical use cases such as object parts, frequent occlusions, fast motion, deformable objects and more;
-- Average length of the video is **659 frames** or **28s**, with the longer ones spanning **1min**;
-- Fully densely annotated at 30FPS;
-- Benchmark-oriented: no separation into training/test, designed to be as diverse as possible to test your models;
-- 100% open and free to download.
-
-### Download
-Separate sequences and masks are available here: [[Google Drive]](TODO)
-
-PUMaVOS `.zip` download link: [[Google Drive]](TODO)
-
-
 <table width="100%">
 <tr>
     <td width="25%">
@@ -239,6 +225,35 @@ PUMaVOS `.zip` download link: [[Google Drive]](TODO)
 </table>
 
 
+**Partial and Unusual Masks for Video Object Segmentation (PUMaVOS)** dataset has the following properties:
+- **23** videos, **19770** densely-annotated frames;
+- Covers complex practical use cases such as object parts, frequent occlusions, fast motion, deformable objects and more;
+- Average length of the video is **659 frames** or **28s**, with the longer ones spanning **1min**;
+- Fully densely annotated at 30FPS;
+- Benchmark-oriented: no separation into training/test, designed to be as diverse as possible to test your models;
+- 100% open and free to download.
+
+### Download
+Separate sequences and masks are available here: [[Google Drive]](TODO)
+
+PUMaVOS `.zip` download link: [[Google Drive]](TODO)
+
+### LICENSE
+
+PUMaVOS is released under [CC BY 4.0 license](https://creativecommons.org/licenses/by/4.0/), - you can use it for any purpose (including commercial), you only need to credit the authors (us) whenever you do and indicate if you've made any modifications. See the full license text in [LICENSE_PUMaVOS](LICENSE_PUMaVOS)
+
 ## Citation
 
-Contact: <maksym.bekuzarov@gmail.com>, <bermudezarii@gmail.com>
+If you are using this code or PUMaVOS dataset in your work, please cite us:
+
+```
+@misc{bekuzarov2023xmem,
+      title={XMem++: Production-level Video Segmentation From Few Annotated Frames}, 
+      author={Maksym Bekuzarov and Ariana Bermudez and Joon-Young Lee and Hao Li},
+      year={2023},
+      eprint={2307.15958},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV}
+}
+```
+Contact: <maksym.bekuzarov@gmail.com>, <bermudezarii@gmail.com>, <jolee@adobe.com>, <hao@hao-li.com>

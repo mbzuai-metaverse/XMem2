@@ -27,7 +27,7 @@ https://github.com/max810/XMem2/assets/29955120/a8e75648-b8cf-4312-8077-27659725
 
 https://github.com/max810/XMem2/assets/29955120/63e6704c-3292-4690-970e-818ab2950c56
 
-### [[Failure Cases]](docs/FAILURE_CASES.md)
+### TODO [[Failure Cases]](docs/FAILURE_CASES.md)
 
 ## Overview
 
@@ -36,8 +36,8 @@ https://github.com/max810/XMem2/assets/29955120/63e6704c-3292-4690-970e-818ab295
 | *XMem++ updated GUI* |
 
 **XMem++** is built on top of [XMem](https://github.com/hkchengrex/XMem) by [Ho Kei Cheng](https://hkchengrex.github.io/), [Alexander Schwing](https://www.alexander-schwing.de/) and improves upon it by adding the following:
-1. [Permanent memory module TODO link]() that greatly improves the model's accuracy with just a few manual annotations provided (see results)
-2. [Annotation candidate selection algorithm]() that selects $k$ next best frames for the user to provide annotations for.
+1. [Permanent memory module](#methodology) that greatly improves the model's accuracy with just a few manual annotations provided (see results)
+2. [Annotation candidate selection algorithm](#frame-annotation-candidate-selector) that selects $k$ next best frames for the user to provide annotations for.
 3. We used **XMem++** to collect and annotate **PUMaVOS** - 23 video dataset with unusual and challenging annotation scenarios at 480p, 30FPS. See [Dataset](#pumavos-dataset)
 
 In addition to the following features:
@@ -88,7 +88,7 @@ Like this:
 python interactive-demo.py --images example_videos/caps/JPEGImages --num-objects 2
 ```
 
-For more information visit [DEMO.md](docs/DEMO.md)
+For more information visit [TODO DEMO.md](docs/DEMO.md)
 
 ## Use **XMem++** Python interface
 See [Python API](docs/PYTHON_API.md) or [main.py](main.py) for examples and explanations.
@@ -115,7 +115,7 @@ This will do the following:
 - Masks are RGB .png files using the [DAVIS color palette](util/palette.py), saved as a palette image (`Image.convert('P')` in [Pillow Image Module](https://pillow.readthedocs.io/en/latest/reference/Image.html#PIL.Image.Image.convert))). If your masks don't follow this color palette, just use run `python import_existing.py` to automatically convert them (see [previous section](#importing-existing-projects)).
 - When using `run_on_video.py` with a video_file, masks should be named `frame_%06d.<ext>` starting at `0`: `frame_000000.jpg, frame_0000001.jpg, ...` **This is preferred filename for any use case**.
 
-More information and convenience commands are provided in [Data format help](docs/DATA_FORMAT_HELP.md)
+More information and convenience commands are provided in [TODO Data format help](docs/DATA_FORMAT_HELP.md)
 
 ## Training
 For training, refer to the [original XMem repo](https://github.com/hkchengrex/XMem/blob/main/docs/TRAINING.md).
@@ -218,7 +218,7 @@ We used XMem++ to collect and annotate a dataset of challenging and practical us
     <td width="25%">
     <div>
         <p align="center"><img src="docs/resources/vlog_square.gif" alt="Vlog"> </p>
-        <p align="center"> Multi-object parts <br/> (<i>"vlog" video</i>) </p>
+        <p align="center">Multi-object parts <br/> (<i>"vlog" video</i>) </p>
     </div>
     </td>
 </tr>
@@ -234,9 +234,9 @@ We used XMem++ to collect and annotate a dataset of challenging and practical us
 - 100% open and free to download.
 
 ### Download
-Separate sequences and masks are available here: [[Google Drive]](TODO)
+Separate sequences and masks are available here: [[TODO Google Drive]](TODO)
 
-PUMaVOS `.zip` download link: [[Google Drive]](TODO)
+PUMaVOS `.zip` download link: [[TODO Google Drive]](TODO)
 
 ### LICENSE
 

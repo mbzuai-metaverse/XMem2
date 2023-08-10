@@ -1,0 +1,17 @@
+# Use the specified PyTorch base image with CUDA support
+FROM pytorch/pytorch:1.12.1-cuda11.3-cudnn8-runtime AS xmem2-base-inference
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy the application files into the container
+COPY . /app
+
+# Install Python dependencies from requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Set the entrypoint to an empty array
+ENTRYPOINT []
+
+# Default command
+CMD ["python", "process_video.py"]

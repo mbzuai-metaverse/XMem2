@@ -5,7 +5,7 @@ from os import PathLike, path
 from tempfile import TemporaryDirectory
 from time import perf_counter
 import time
-from typing import Iterable, Literal, Optional, Union, List
+from typing import Iterable, Optional, Union, List
 from pathlib import Path
 from warnings import warn
 
@@ -146,7 +146,7 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
 
 def _load_main_objects(imgs_in_path, masks_in_path, config):
     model_path = config['model']
-    network = XMem(config, model_path).cuda().eval()
+    network = XMem(config, model_path, pretrained_key_encoder=False, pretrained_value_encoder=False).cuda().eval()
     if model_path is not None:
         model_weights = torch.load(model_path)
         network.load_weights(model_weights, init_as_zero_if_needed=True)

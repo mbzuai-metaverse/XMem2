@@ -169,7 +169,7 @@ docker build . -t <your-repo/your-image-name[:your-tag]> --target xmem2-gui
 ```
 ## Data format
 - Images are expected to use .jpg format.
-- Masks are RGB .png files using the [DAVIS color palette](util/palette.py), saved as a palette image (`Image.convert('P')` in [Pillow Image Module](https://pillow.readthedocs.io/en/latest/reference/Image.html#PIL.Image.Image.convert))). If your masks don't follow this color palette, just use run `python import_existing.py` to automatically convert them (see [previous section](#importing-existing-projects)).
+- Masks are RGB .png files that use the [DAVIS color palette](util/palette.py), saved as a palette image (`Image.convert('P')` in [Pillow Image Module](https://pillow.readthedocs.io/en/latest/reference/Image.html#PIL.Image.Image.convert))). If your masks don't follow this color palette, just use run `python import_existing.py` to automatically convert them (see [previous section](#importing-existing-projects)).
 - When using `run_on_video.py` with a video_file, masks should be named `frame_%06d.<ext>` starting at `0`: `frame_000000.jpg, frame_0000001.jpg, ...` **This is preferred filename for any use case**.
 
 More information and convenience commands are provided in [TODO Data format help](docs/DATA_FORMAT_HELP.md)

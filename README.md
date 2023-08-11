@@ -48,7 +48,7 @@ https://github.com/max810/XMem2/assets/29955120/63e6704c-3292-4690-970e-818ab295
 
 | ![Demo GUI](docs/resources/gui_demo.jpg) | 
 |:--:| 
-| *XMem++ updated GUI* |
+| _XMem++ updated GUI_ |
 
 **XMem++** is built on top of [XMem](https://github.com/hkchengrex/XMem) by [Ho Kei Cheng](https://hkchengrex.github.io/), [Alexander Schwing](https://www.alexander-schwing.de/) and improves upon it by adding the following:
 1. [Permanent memory module](#methodology) that greatly improves the model's accuracy with just a few manual annotations provided (see results)
@@ -75,7 +75,7 @@ First, install the required Python packages:
 
 ### Download weights
 
-Download the pretrained models either using `./scripts/download_models.sh`, or manually and put them in `./saves` (create the folder if it doesn't exist). You can download them from [[XMem GitHub]](https://github.com/hkchengrex/XMem/releases/tag/v1.0) or [[XMem Google Drive]](https://drive.google.com/drive/folders/1QYsog7zNzcxGXTGBzEhMUg8QVJwZB6D1?usp=sharing).
+Download the pretrained models either using `./scripts/download_models.sh`, or manually and put them in `./saves` (create the folder if it doesn't exist). You can download them from [[XMem GitHub]](https://github.com/hkchengrex/XMem/releases/tag/v1.0) or [[XMem Google Drive]](https://drive.google.com/drive/folders/1QYsog7zNzcxGXTGBzEhMUg8QVJwZB6D1?usp=sharing). For inference you only need `XMem.pth`, but for GUI also download `fbrs.pth` and `s2m.pth`.
 
 ## Use the GUI
 To run the GUI on a new video:
@@ -103,7 +103,7 @@ Like this:
 python interactive_demo.py --images example_videos/caps/JPEGImages --num-objects 2
 ```
 
-For more information visit [TODO DEMO.md](docs/DEMO.md)
+For more information visit [DEMO.md](docs/DEMO.md)
 
 ## Use **XMem++** command-line and Python interface
 We provide a simple command-line interface in [process_video.py](process_video.py) which you can use like this:
@@ -154,6 +154,8 @@ Examples:
 ./run_gui_in_docker.sh --video example_videos/chair/chair.mp4 --num_objects 2
 ```
 For the GUI you can change variables `$LOCAL_WORKSPACE_DIR` and `$DISPLAY_TO_USE` in [run_gui_in_docker.sh](run_gui_in_docker.sh#L54) if necessary.
+
+_Be wary that the interactive import buttons will not work (they will open paths within the container filesystem, not the host one)._
 ### Building your own images
 For command-line inference:
 

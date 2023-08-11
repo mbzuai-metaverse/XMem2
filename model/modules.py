@@ -100,11 +100,11 @@ class HiddenReinforcer(nn.Module):
 
 
 class ValueEncoder(nn.Module):
-    def __init__(self, value_dim, hidden_dim, single_object=False):
+    def __init__(self, value_dim, hidden_dim, single_object=False, pretrained=True):
         super().__init__()
         
         self.single_object = single_object
-        network = resnet.resnet18(pretrained=True, extra_dim=1 if single_object else 2)
+        network = resnet.resnet18(pretrained=pretrained, extra_dim=1 if single_object else 2)
         self.conv1 = network.conv1
         self.bn1 = network.bn1
         self.relu = network.relu  # 1/2, 64
@@ -151,9 +151,9 @@ class ValueEncoder(nn.Module):
  
 
 class KeyEncoder(nn.Module):
-    def __init__(self):
+    def __init__(self, pretrained=True):
         super().__init__()
-        network = resnet.resnet50(pretrained=True)
+        network = resnet.resnet50(pretrained=pretrained)
         self.conv1 = network.conv1
         self.bn1 = network.bn1
         self.relu = network.relu  # 1/2, 64

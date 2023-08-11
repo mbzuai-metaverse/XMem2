@@ -9,6 +9,21 @@
 [[arXiv]](https://arxiv.org/abs/2307.15958) [[PDF]](https://arxiv.org/pdf/2307.15958.pdf) [[Project Page TODO]](https://hkchengrex.github.io/XMem/)
 
 $^\dagger$ These authors equally contributed to the work.
+
+## Table of contents
+* [Performance demo)](#demo)
+* [Overview](#overview)
+* [Getting started](#getting-started)
+* [Use the GUI](#use-the-gui)
+* [Use **XMem++** command-line and Python interface](#use-xmem-command-line-and-python-interface)
+* [Importing existing projects](#importing-existing-projects)
+* [Docker support](#docker-support)
+* [Data format](#data-format)
+* [Training](#training)
+* [Methodology](#methodology)
+* [Frame annotation candidate selector](#frame-annotation-candidate-selector)
+* [PUMaVOS Dataset](#pumavos-dataset)
+* [Citation](#citation)
 ## Demo
 
 Inspired by movie industry use cases, **XMem++** is an Interactive Video Segmentation Tool that takes a few user-provided segmentation masks and segments very challenging use cases with minimal human supervision, such as 

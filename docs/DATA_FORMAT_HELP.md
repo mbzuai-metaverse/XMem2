@@ -34,6 +34,24 @@ _When in doubt, just rename everything to `frame_000000.jpg`, `frame_000001.jpg`
 
 ## Convenience tips
 
+If you want to rename your existing frames/masks (preserves original file extension), here's a convenient script in Python:
+```Python
+import re
+import shutil
+from pathlib import Path
+
+p_in = Path('/path/to/your/frames')
+p_out = Path('/path/where/to/save/renamed/frames')
+p_out.mkdir(exist_ok=True, parents=True)
+
+pattern = re.compile(r'\d+')
+
+for p_file in sorted(p for p in p_in.iterdir() if p.is_file()):
+    idx = int(re.search(pattern, p_file.stem).group())
+    new_name = f'frame_{idx:06d}' + p_file.suffix
+    shutil.copyfile(p_file, p_out / new_name)
+```
+
 Both cmd/Python API and GUI app can extract frames for you from a video file. However, you can still do it yourself if you need to, using the following `ffmpeg` command:
 ```Bash
                             # Optional resizing (for images, for masks use `flags=neighbor`)

@@ -1,8 +1,5 @@
 from functools import partial
-from pathlib import Path
 
-from sklearn.cluster import KMeans
-import pandas as pd
 import torch
 import torchvision.transforms.functional as FT
 from torchvision.transforms import ColorJitter, Grayscale, RandomPosterize, RandomAdjustSharpness, ToTensor, RandomAffine
@@ -44,78 +41,6 @@ def extract_keys(dataloder, processor, print_progress=False, flatten=True, **kwa
         num_frames = ti + 1  # 0 after 1 iteration, 1 after 2, etc.
 
         return frame_keys, shrinkages, selections, device, num_frames, key_sum
-
-
-def select_n_frame_candidates(preds_df: pd.DataFrame, uncertainty_name: str, n=5):
-    df = preds_df
-
-    df.reset_index(drop=False, inplace=True)
-
-    # max_frame = df['frame'].max()
-    # max_entropy = df['entropy'].max()
-
-    df = df[df['mask_provided'] == False]  # removing frames with masks
-    # removing low entropy parts
-    df = df[df[uncertainty_name] >= df[uncertainty_name].median()]
-
-    df_backup = df.copy()
-
-    df['index'] = df['index'] / df['index'].max()  # scale to 0..1
-    # df['entropy'] = df['entropy'] / df['entropy'].max() # scale to 0..1
-
-    X = df[['index', uncertainty_name]].to_numpy()
-
-    clusterer = KMeans(n_clusters=n)
-
-    labels = clusterer.fit_predict(X)
-
-    clusters = df_backup.groupby(labels)
-
-    candidates = []
-
-    for g, cluster in clusters:
-        if g == -1:
-            continue
-
-        max_entropy_idx = cluster[uncertainty_name].argmax()
-
-        res = cluster.iloc[max_entropy_idx]
-
-        candidates.append(res)
-
-    return candidates
-
-
-def select_most_uncertain_frame(preds_df: pd.DataFrame, uncertainty_name: str):
-    df = preds_df[preds_df['mask_provided'] == False]
-    df.reset_index(drop=False, inplace=True)
-    return df.iloc[df[uncertainty_name].argmax()]
-
-
-def select_n_frame_candidates_no_neighbours_simple(preds_df: pd.DataFrame, uncertainty_name: str, n=5, neighbourhood_size=4):
-    df = preds_df
-    df.reset_index(drop=False, inplace=True)
-
-    df = df[df['mask_provided'] == False]  # removing frames with masks
-
-    neighbours_indices = set()
-    chosen_candidates = []
-
-    df_sorted = df.sort_values(uncertainty_name, ascending=False)
-    i = 0
-    while len(chosen_candidates) < n:
-        candidate = df_sorted.iloc[i]
-        candidate_index = candidate['index']
-
-        if candidate_index not in neighbours_indices:
-            chosen_candidates.append(candidate)
-            candidate_neighbours = range(
-                candidate_index - neighbourhood_size, candidate_index + neighbourhood_size + 1)
-            neighbours_indices.update(candidate_neighbours)
-
-        i += 1
-
-    return chosen_candidates
 
 
 WhichAugToPick = -1
@@ -290,61 +215,3 @@ def get_determenistic_augmentations(img_size=None, mask=None, subset: str = None
             img_mask_augs_pairs.append((crop_mask, crop_mask))
 
         return img_mask_augs_pairs
-
-def disparity_func(predictions, augs, images: list = None, output_save_path: str = None):
-    assert len(predictions) - len(augs) == 1
-    disparity_map = None
-    prev = None
-
-    if images is None:
-        images = [None] * len(predictions)
-    else:
-        assert len(predictions) == len(images)
-
-    if output_save_path is not None:
-        p_out_disparity = Path(output_save_path)
-    else:
-        p_out_disparity = None
-
-    try:
-        aug_names = [aug.name for aug in augs]
-    except AttributeError:
-        aug_names = [aug._get_name() for aug in augs]
-
-    names = ['original'] + aug_names
-    for i, (name, img, pred) in enumerate(zip(names, images, predictions)):
-        fg_mask = pred[1:2].squeeze().cpu()  # 1:2 is Foreground
-
-        if disparity_map is None:
-            disparity_map = torch.zeros_like(fg_mask)
-        else:
-            disparity_map += (prev - fg_mask).abs()
-
-        pred_mask_ = FT.to_pil_image(fg_mask)
-        if p_out_disparity is not None:
-            p_out_save_mask = p_out_disparity / 'masks' / (f'{i}_{name}.png')
-            p_out_save_image = p_out_disparity / 'images' / (f'{i}_{name}.png')
-
-            if not p_out_save_mask.parent.exists():
-                p_out_save_mask.parent.mkdir(parents=True)
-
-            pred_mask_.save(p_out_save_mask)
-
-            if not p_out_save_image.parent.exists():
-                p_out_save_image.parent.mkdir(parents=True)
-
-            img.save(p_out_save_image)
-
-        prev = fg_mask
-
-    # 0..1; not `disparity_map.max()`, as the scale would differ across images
-    disparity_scaled = disparity_map / (len(augs) + 1)
-    disparity_avg = disparity_scaled.mean()
-    # num pixels with large disparities
-    disparity_large = (disparity_scaled > 0.5).sum()
-
-    if p_out_disparity is not None:
-        disparity_img = FT.to_pil_image(disparity_scaled)
-        disparity_img.save(p_out_disparity / (f'{i+1}_absolute_disparity.png'))
-
-    return {'full': disparity_scaled, 'avg': disparity_avg, 'large': disparity_large}

@@ -65,12 +65,12 @@ Download the pretrained models either using `./scripts/download_models.sh`, or m
 ## Use the GUI
 To run the GUI on a new video:
 ```Bash
-python interactive-demo.py --video example_videos/chair/chair.mp4
+python interactive_demo.py --video example_videos/chair/chair.mp4
 ```
 
 To run on a list of images:
 ```Bash
-python interactive-demo.py --images example_videos/chair/JPEGImages
+python interactive_demo.py --images example_videos/chair/JPEGImages
 ```
 
 Both of these commands will create a folder for the current vide in workspace folder (default is `.workspace`) and save all the masks and predictions there.
@@ -78,20 +78,32 @@ Both of these commands will create a folder for the current vide in workspace fo
 
 To keep editing an existing project in a workspace, run the following command:
 ```Bash
-python interactive-demo.py --workspace ./workspace/<video_name>
+python interactive_demo.py --workspace ./workspace/<video_name>
 ```
 
 If you have more than 1 object make sure to add `--num-objects <num_objects>` to the commands above the **first time you create a project**. It will saved in the project file after that for your convenience =)
 
 Like this:
 ```Bash
-python interactive-demo.py --images example_videos/caps/JPEGImages --num-objects 2
+python interactive_demo.py --images example_videos/caps/JPEGImages --num-objects 2
 ```
 
 For more information visit [TODO DEMO.md](docs/DEMO.md)
 
-## Use **XMem++** Python interface
-See [Python API](docs/PYTHON_API.md) or [main.py](main.py) for examples and explanations.
+## Use **XMem++** command-line and Python interface
+We provide a simple command-line interface in [process_video.py](process_video.py) which you can use like this:
+
+```Bash
+python process_video.py \
+    --video <path to video file/extracted .jpg frames> \
+    --masks <path to directory with existing .png masks> \
+    --output <path to save results>
+```
+The script will just take existing video and ground truth masks (all in the given directory will be used) and runs segmentation once.
+
+Short-form arguments `-v -m -o` are also supported.
+
+See [Python API](docs/PYTHON_API.md) or [main.py](main.py) for more complex use-cases and explanations.
 
 ## Importing existing projects
 
@@ -110,6 +122,34 @@ This will do the following:
 2. Copy your given images/masks inside.
 3. Convert RGB masks to necessary color palette (XMem++ uses [DAVIS color palette](util/palette.py), where each new object=new color).
 4. Resize the frames if specified with the `--size` argument.
+
+## Docker support
+We provide 2 images at [DockerHub](https://hub.docker.com/repository/docker/max810/xmem2/general):
+- `max810/xmem2:base-inference` - smaller and lighter - for running inference from command line as in [Command line section](#use-xmem-command-line-and-python-interface).
+- `max810/xmem2:gui` - for running the graphical interface interactively.
+
+To use them just run `./run_inference_in_docker.sh` or `./run_gui_in_docker.sh` with corresponding cmd/gui arguments (see respective sections [[Inference]](#use-xmem-command-line-and-python-interface) [[GUI]](#use-the-gui)). _They supply proper arguments to `docker run` command and create the corresponding volumes for input/output directories automatically_.
+
+Examples:
+```Bash
+# Inference
+./run_inference_in_docker.sh -v example_videos/caps/JPEGImages -m example_videos/caps/Annotations -o directory/that/does/not/exist/yet
+
+# Interactive GUI
+./run_gui_in_docker.sh --video example_videos/chair/chair.mp4 --num_objects 2
+```
+For the GUI you can change variables `$LOCAL_WORKSPACE_DIR` and `$DISPLAY_TO_USE` in [run_gui_in_docker.sh](run_gui_in_docker.sh#L54) if necessary.
+### Building your own images
+For command-line inference:
+
+```Bash
+docker build . -t <your-repo/your-image-name[:your-tag]> --target xmem2-base-inference
+```
+
+For GUI:
+```Bash
+docker build . -t <your-repo/your-image-name[:your-tag]> --target xmem2-gui
+```
 ## Data format
 - Images are expected to use .jpg format.
 - Masks are RGB .png files using the [DAVIS color palette](util/palette.py), saved as a palette image (`Image.convert('P')` in [Pillow Image Module](https://pillow.readthedocs.io/en/latest/reference/Image.html#PIL.Image.Image.convert))). If your masks don't follow this color palette, just use run `python import_existing.py` to automatically convert them (see [previous section](#importing-existing-projects)).

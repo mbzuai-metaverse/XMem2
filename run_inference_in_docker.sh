@@ -36,14 +36,30 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+if [ -z "${vid_abs_host}" ]; then
+  echo "Missing argument: -v|--video - host path to input video."
+fi 
+
+if [ -z "${masks_abs_host}" ]; then
+  echo "Missing argument: -m|--masks - host path to the directory with existing masks."
+fi 
+
+if [ -z "${output_abs_host}" ]; then
+  echo "Missing argument: -o|--output - host path to the directory where the results should be saved."
+fi 
+
+if [ -z "${vid_abs_host}" ] || [ -z "${masks_abs_host}" ] || [ -z "${output_abs_host}" ]; then
+  >&2 echo "Error: one or more arguments missing, exiting..."
+  exit 1;
+fi
 
 echo -e "${vid_abs_host}\n${masks_abs_host}\n${output_abs_host}"
 
+set -x  # To print the exact command that will run
 
-sudo docker run --runtime=nvidia -it --rm \
-  -v ${vid_abs_host}:${vid_abs_host} \
-  -v ${vid_abs_host}:${vid_abs_host} \
-  -v ${masks_abs_host}:${masks_abs_host} \
-  -v ${output_abs_host}:${output_abs_host} \
+docker run --runtime=nvidia -it --rm \
+  -v "${vid_abs_host}":"${vid_abs_host}" \
+  -v "${masks_abs_host}":"${masks_abs_host}" \
+  -v "${output_abs_host}":"${output_abs_host}" \
   max810/xmem2:base-inference \
-  python3 process_video.py --video ${vid_abs_host} --masks ${masks_abs_host} --output ${output_abs_host}
+  python3 process_video.py --video "${vid_abs_host}" --masks "${masks_abs_host}" --output "${output_abs_host}"

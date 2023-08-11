@@ -10,19 +10,16 @@ RUN python -m pip install --no-cache-dir opencv-python-headless scikit-learn Pil
 COPY requirements.txt /app/requirements.txt
 RUN python -m pip install --no-cache-dir -r requirements.txt
 
+# Copy the application files into the container
 COPY . /app
 
 # FOR GUI - only a few extra dependencies
 FROM xmem2-base-inference AS xmem2-gui
 
-RUN apt-get update && apt-get install -y build-essential libgl1 libglib2.0-0 libxkbcommon-x11-0 
+# Qt dependencies
+RUN apt-get update && apt-get install -y build-essential libgl1 libglib2.0-0 libxkbcommon-x11-0 '^libxcb.*-dev' libx11-xcb-dev libglu1-mesa-dev libxrender-dev libxi-dev libxkbcommon-dev libxkbcommon-x11-dev libfontconfig libdbus-1-3 mesa-utils libgl1-mesa-glx
 RUN /bin/bash -c 'gcc --version'
 
-COPY requirements_demo.txt /app/requirements_demo.txt
 RUN python -m pip install --no-cache-dir -r requirements_demo.txt
-
-# Copy the application files into the container
-RUN cp -r /opt/conda/lib/python3.7/site-packages/PyQt5/Qt5/plugins/platforms/ /app/
-
-# Qt dependencies
-RUN apt-get install -y '^libxcb.*-dev' libx11-xcb-dev libglu1-mesa-dev libxrender-dev libxi-dev libxkbcommon-dev libxkbcommon-x11-dev libfontconfig libdbus-1-3
+# To avoid error messages when launching PyQT
+ENV LIBGL_ALWAYS_INDIRECT=1

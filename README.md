@@ -6,7 +6,7 @@
 
 [Metaverse Lab TODO LINK]() @ [MBZUAI](https://mbzuai.ac.ae/) (Mohamed bin Zayed University of Artificial Intelligence)
 
-[[arXiv]](https://arxiv.org/abs/2307.15958) [[PDF]](https://arxiv.org/pdf/2307.15958.pdf) [[Project Page TODO]](https://hkchengrex.github.io/XMem/)
+[[arXiv]](https://arxiv.org/abs/2307.15958) [[PDF]](https://arxiv.org/pdf/2307.15958.pdf) [[Project Page]](https://xmem2.surge.sh)
 
 $^\dagger$ These authors equally contributed to the work.
 
@@ -42,7 +42,7 @@ https://github.com/max810/XMem2/assets/29955120/a8e75648-b8cf-4312-8077-27659725
 
 https://github.com/max810/XMem2/assets/29955120/63e6704c-3292-4690-970e-818ab2950c56
 
-### TODO [[Failure Cases]](docs/FAILURE_CASES.md)
+### [[LIMITATIONS]](docs/LIMITATIONS.md)
 
 ## Overview
 

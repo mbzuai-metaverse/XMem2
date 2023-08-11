@@ -2,6 +2,7 @@
 
 key=''
 
+# Parsing keyword arguments
 while [ $# -gt 0 ]; do
   if [ -z "${key}" ]; then
     case "$1" in
@@ -41,7 +42,8 @@ echo -e "${vid_abs_host}\n${masks_abs_host}\n${output_abs_host}"
 
 sudo docker run --runtime=nvidia -it --rm \
   -v ${vid_abs_host}:${vid_abs_host} \
+  -v ${vid_abs_host}:${vid_abs_host} \
   -v ${masks_abs_host}:${masks_abs_host} \
   -v ${output_abs_host}:${output_abs_host} \
-  max810/xmem2-base-inference \
+  max810/xmem2:base-inference \
   python3 process_video.py --video ${vid_abs_host} --masks ${masks_abs_host} --output ${output_abs_host}

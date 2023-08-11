@@ -71,7 +71,7 @@ if __name__ == '__main__':
     with torch.cuda.amp.autocast(enabled=not args.no_amp):
 
         # Load our checkpoint
-        network = XMem(config, args.model).cuda().eval()
+        network = XMem(config, args.model, pretrained_key_encoder=False, pretrained_value_encoder=False).cuda().eval()
 
         # Loads the S2M model
         if args.s2m_model is not None:

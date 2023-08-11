@@ -148,3 +148,5 @@ torchlogs/
 .DS_Store
 *.jpg
 *.zip
+*.sh
+Dockerfile

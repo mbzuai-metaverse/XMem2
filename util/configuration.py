@@ -13,10 +13,10 @@ class Configuration():
         parser.add_argument('--no_amp', action='store_true')
 
         # Data parameters
-        parser.add_argument('--static_root', help='Static training data root', default='../static')
-        parser.add_argument('--bl_root', help='Blender training data root', default='../BL30K')
-        parser.add_argument('--yv_root', help='YouTubeVOS data root', default='../YouTube')
-        parser.add_argument('--davis_root', help='DAVIS data root', default='../DAVIS')
+        parser.add_argument('--static_root', help='Static training data root', default='../Datasets/static')
+        parser.add_argument('--bl_root', help='Blender training data root', default='../Datasets/BL30K') 
+        parser.add_argument('--yv_root', help='YouTubeVOS data root', default='../Datasets/YouTube')
+        parser.add_argument('--davis_root', help='DAVIS data root', default='.../Datasets/DAVIS')
         parser.add_argument('--num_workers', help='Total number of dataloader workers across all GPUs processes', type=int, default=16)
 
         parser.add_argument('--key_dim', default=64, type=int)
@@ -32,7 +32,7 @@ class Configuration():
         Batch sizes are effective -- you don't have to scale them when you scale the number processes
         """
         # Stage 0, static images
-        parser.add_argument('--s0_batch_size', default=16, type=int)
+        parser.add_argument('--s0_batch_size', default=8, type=int)
         parser.add_argument('--s0_iterations', default=150000, type=int)
         parser.add_argument('--s0_finetune', default=0, type=int)
         parser.add_argument('--s0_steps', nargs="*", default=[], type=int)
@@ -133,3 +133,35 @@ class Configuration():
 
     def __str__(self):
         return str(self.args)
+
+
+VIDEO_INFERENCE_CONFIG = {
+        'buffer_size': 100,
+        'deep_update_every': -1,
+        'enable_long_term': True,
+        'enable_long_term_count_usage': True,
+        'fbrs_model': 'saves/fbrs.pth',
+        'hidden_dim': 64,
+        'images': None,
+        'key_dim': 64,
+        'max_long_term_elements': 10000,
+        'max_mid_term_frames': 10,
+        'mem_every': 10,
+        'min_mid_term_frames': 5,
+        'model': './saves/XMem.pth',
+        'no_amp': False,
+        'num_objects': 1,
+        'num_prototypes': 128,
+        's2m_model': 'saves/s2m.pth',
+        'size': 480,
+        'top_k': 30,
+        'value_dim': 512,
+        'masks_out_path': None,
+        'workspace': None,
+        'save_masks': True
+    }
+if __name__ == '__main__':
+    c = Configuration()
+    c.parse()
+    for k in sorted(c.args.keys()):
+        print(k, c.args[k])

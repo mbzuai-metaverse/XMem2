@@ -1,6 +1,4 @@
 log/
-saves
-saves/
 output/
 .vscode/
 workspace/
@@ -145,6 +143,10 @@ torchlogs/
 *junk*
 *.profile
 
+!requirements*.txt
+
 .DS_Store
 *.jpg
 *.zip
+*.sh
+Dockerfile

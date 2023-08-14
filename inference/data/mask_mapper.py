@@ -30,7 +30,7 @@ class MaskMapper:
 
         new_labels = list(set(labels) - set(self.labels))
         if not exhaustive:
-            assert len(new_labels) == len(labels), 'Old labels found in non-exhaustive mode'
+            assert len(new_labels) == len(labels), 'Old labels found in non-exhaustive mode' #a: it runs if you put exhaustive = True
 
         # add new remappings
         for i, l in enumerate(new_labels):

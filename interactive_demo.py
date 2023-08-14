@@ -46,7 +46,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--buffer_size', help='Correlate with CPU memory consumption', type=int, default=100)
     
-    parser.add_argument('--num_objects', type=int, default=1)
+    parser.add_argument('--num_objects', type=int, default=None)
 
     # Long-memory options
     # Defaults. Some can be changed in the GUI.
@@ -71,7 +71,7 @@ if __name__ == '__main__':
     with torch.cuda.amp.autocast(enabled=not args.no_amp):
 
         # Load our checkpoint
-        network = XMem(config, args.model).cuda().eval()
+        network = XMem(config, args.model, pretrained_key_encoder=False, pretrained_value_encoder=False).cuda().eval()
 
         # Loads the S2M model
         if args.s2m_model is not None:
@@ -81,14 +81,17 @@ if __name__ == '__main__':
         else:
             s2m_model = None
 
-        s2m_controller = S2MController(s2m_model, args.num_objects, ignore_class=255)
+        # Manages most IO
+        config['num_objects_default_value'] = 1
+        resource_manager = ResourceManager(config)
+        num_objects = resource_manager.num_objects
+        config['num_objects'] = num_objects
+
+        s2m_controller = S2MController(s2m_model, num_objects, ignore_class=255)
         if args.fbrs_model is not None:
             fbrs_controller = FBRSController(args.fbrs_model)
         else:
             fbrs_controller = None
-
-        # Manages most IO
-        resource_manager = ResourceManager(config)
 
         app = QApplication(sys.argv)
         ex = App(network, resource_manager, s2m_controller, fbrs_controller, config)

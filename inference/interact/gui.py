@@ -15,7 +15,12 @@ but with XMem as the backbone and is more memory (for both CPU and GPU) friendly
 import functools
 
 import os
+from pathlib import Path
+import re
+from time import perf_counter
 import cv2
+
+from inference.frame_selection.frame_selection import select_next_candidates
 # fix conflicts between qt5 and cv2
 os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH")
 
@@ -24,10 +29,11 @@ import torch
 
 from PyQt5.QtWidgets import (QWidget, QApplication, QComboBox, QCheckBox,
     QHBoxLayout, QLabel, QPushButton, QTextEdit, QSpinBox, QFileDialog,
-    QPlainTextEdit, QVBoxLayout, QSizePolicy, QButtonGroup, QSlider, QShortcut, QRadioButton)
+    QPlainTextEdit, QVBoxLayout, QSizePolicy, QButtonGroup, QSlider, QShortcut, 
+    QRadioButton, QTabWidget, QDialog, QErrorMessage, QMessageBox, QLineEdit)
 
-from PyQt5.QtGui import QPixmap, QKeySequence, QImage, QTextCursor, QIcon
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QPixmap, QKeySequence, QImage, QTextCursor, QIcon, QRegExpValidator
+from PyQt5.QtCore import Qt, QTimer, QThreadPool, QRegExp
 
 from model.network import XMem
 
@@ -56,37 +62,57 @@ class App(QWidget):
         self.processor = InferenceCore(net, config)
         self.processor.set_all_labels(list(range(1, self.num_objects+1)))
         self.res_man = resource_manager
+        self.threadpool = QThreadPool()
+        self.last_opened_directory = str(Path.home())
 
         self.num_frames = len(self.res_man)
         self.height, self.width = self.res_man.h, self.res_man.w
 
         # set window
-        self.setWindowTitle('XMem Demo')
+        self.setWindowTitle('XMem++ Demo')
         self.setGeometry(100, 100, self.width, self.height+100)
         self.setWindowIcon(QIcon('docs/icon.png'))
 
         # some buttons
         self.play_button = QPushButton('Play Video')
+        self.play_button.setToolTip("Play/Pause the video")
         self.play_button.clicked.connect(self.on_play_video)
         self.commit_button = QPushButton('Commit')
+        self.commit_button.setToolTip("Finish current interaction with the mask")
         self.commit_button.clicked.connect(self.on_commit)
+        self.save_reference_button = QPushButton('Save reference')
+        self.save_reference_button.setToolTip("Save current mask in the permanent memory.\nUsed by the model as a reference ground truth.")
+        self.save_reference_button.clicked.connect(self.on_save_reference) 
+        self.compute_candidates_button = QPushButton('Compute Annotation candidates')
+        self.compute_candidates_button.setToolTip("Get next <i>k</i> frames that you should annotate.")
+        self.compute_candidates_button.clicked.connect(self.on_compute_candidates)
+
+        self.full_run_button = QPushButton('FULL Propagate')
+        self.full_run_button.setToolTip("Clear the temporary memory, scroll to beginning and predict new masks for <b>all</b> the frames.")
+        self.full_run_button.clicked.connect(partial(self.general_propagation_callback, propagation_type='full'))
 
         self.forward_run_button = QPushButton('Forward Propagate')
-        self.forward_run_button.clicked.connect(self.on_forward_propagation)
+        self.forward_run_button.setToolTip("Predict new masks for all the frames <b>starting</b> with the current one.")
+        self.forward_run_button.clicked.connect(partial(self.general_propagation_callback, propagation_type='forward'))
         self.forward_run_button.setMinimumWidth(200)
 
         self.backward_run_button = QPushButton('Backward Propagate')
-        self.backward_run_button.clicked.connect(self.on_backward_propagation)
+        self.backward_run_button.setToolTip("Predict new masks for all the frames <b>before</b> with the current one.")
+        self.backward_run_button.clicked.connect(partial(self.general_propagation_callback, propagation_type='backward'))
         self.backward_run_button.setMinimumWidth(200)
 
-        self.reset_button = QPushButton('Reset Frame')
+        self.reset_button = QPushButton('Delete Mask')
+        self.reset_button.setToolTip("Delete the mask for the current frames. <b>Cannot be undone</b>!")
         self.reset_button.clicked.connect(self.on_reset_mask)
+
+        self.spacebar = QShortcut(QKeySequence(Qt.Key_Space), self)
+        self.spacebar.activated.connect(self.pause_propagation)
 
         # LCD
         self.lcd = QTextEdit()
         self.lcd.setReadOnly(True)
         self.lcd.setMaximumHeight(28)
-        self.lcd.setMaximumWidth(120)
+        self.lcd.setFixedWidth(120)
         self.lcd.setText('{: 4d} / {: 4d}'.format(0, self.num_frames-1))
 
         # timeline slider
@@ -122,23 +148,26 @@ class App(QWidget):
         self.combo.currentTextChanged.connect(self.set_viz_mode)
 
         self.save_visualization_checkbox = QCheckBox(self)
+        self.save_visualization_checkbox.setChecked(True)
         self.save_visualization_checkbox.toggled.connect(self.on_save_visualization_toggle)
-        self.save_visualization_checkbox.setChecked(False)
-        self.save_visualization = False
+        self.save_visualization = True
 
         # Radio buttons for type of interactions
-        self.curr_interaction = 'Click'
+        self.curr_interaction = 'Free'
         self.interaction_group = QButtonGroup()
         self.radio_fbrs = QRadioButton('Click')
+        self.radio_fbrs.setToolTip("Clicks in/out of the current mask. <b>Careful - will delete existing mask</b>!")
         self.radio_s2m = QRadioButton('Scribble')
+        self.radio_s2m.setToolTip('Draw a line in/out of the current mask. Edits existing masks directly.')
         self.radio_free = QRadioButton('Free')
+        self.radio_free.setToolTip('Free drawing')
         self.interaction_group.addButton(self.radio_fbrs)
         self.interaction_group.addButton(self.radio_s2m)
         self.interaction_group.addButton(self.radio_free)
         self.radio_fbrs.toggled.connect(self.interaction_radio_clicked)
         self.radio_s2m.toggled.connect(self.interaction_radio_clicked)
         self.radio_free.toggled.connect(self.interaction_radio_clicked)
-        self.radio_fbrs.toggle()
+        self.radio_free.toggle()
 
         # Main canvas -> QLabel
         self.main_canvas = QLabel()
@@ -166,10 +195,14 @@ class App(QWidget):
         self.zoom_m_button.clicked.connect(self.on_zoom_minus)
 
         # Parameters setting
-        self.clear_mem_button = QPushButton('Clear memory')
+        self.clear_mem_button = QPushButton('Clear TEMP and LONG memory')
+        self.clear_mem_button.setToolTip("Temporary and long-term memory can have features from the previous model run.<br>"
+                                         "If you had errors in the predictions, they might influence new masks.<br>"
+                                         "So for a new model run either clean the memory or just use <i>FULL propagate</i>.")
         self.clear_mem_button.clicked.connect(self.on_clear_memory)
 
         self.work_mem_gauge, self.work_mem_gauge_layout = create_gauge('Working memory size')
+        self.work_mem_gauge.setToolTip("Temporary and Permanent memory together.")
         self.long_mem_gauge, self.long_mem_gauge_layout = create_gauge('Long-term memory size')
         self.gpu_mem_gauge, self.gpu_mem_gauge_layout = create_gauge('GPU mem. (all processes, w/ caching)')
         self.torch_mem_gauge, self.torch_mem_gauge_layout = create_gauge('GPU mem. (used by torch, w/o caching)')
@@ -196,7 +229,12 @@ class App(QWidget):
 
         # import mask/layer
         self.import_mask_button = QPushButton('Import mask')
+        self.import_mask_button.setToolTip("Import an existing .png file with a mask for a current frame.\nReplace existing mask.")
         self.import_mask_button.clicked.connect(self.on_import_mask)
+
+        self.import_all_masks_button = QPushButton('Import ALL masks')
+        self.import_all_masks_button.setToolTip("Import a list of mask for some or all frames in the video.\nIf more than 10 are imported, the invididual confirmations will not be shown.")
+        self.import_all_masks_button.clicked.connect(self.on_import_all_masks)
         self.import_layer_button = QPushButton('Import layer')
         self.import_layer_button.clicked.connect(self.on_import_layer)
 
@@ -233,16 +271,44 @@ class App(QWidget):
         navi.addWidget(QLabel('Save overlay during propagation'))
         navi.addWidget(self.save_visualization_checkbox)
         navi.addStretch(1)
+        
+        # self.test_btn = QPushButton('TEST')
+        # self.test_btn.clicked.connect(self.TEST)
+        # navi.addWidget(self.test_btn)
+        navi.addWidget(self.save_reference_button)
+        # navi.addWidget(self.compute_candidates_button)
         navi.addWidget(self.commit_button)
+        navi.addWidget(self.full_run_button)
         navi.addWidget(self.forward_run_button)
         navi.addWidget(self.backward_run_button)
 
         # Drawing area, main canvas and minimap
+        self.color_picker = ColorPicker(self.num_objects, davis_palette)
+        self.color_picker.clicked.connect(self.hit_number_key)
         draw_area = QHBoxLayout()
+        draw_area.addWidget(self.color_picker)
         draw_area.addWidget(self.main_canvas, 4)
 
+        self.tabs = QTabWidget()
+        self.tabs.setMinimumWidth(500)
+        self.map_tab = QWidget()
+        self.references_tab = QWidget()
+
+        references_scroll = QScrollArea()
+        references_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        references_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        references_scroll.setWidgetResizable(True)
+        references_scroll.setWidget(self.references_tab)
+
+        self.references_scroll = references_scroll
+
+        self.tabs.addTab(self.map_tab,"Minimap && Stats")
+        self.tabs.addTab(self.references_scroll, "References && Candidates")
+
+        tabs_layout = QVBoxLayout()
+
         # Minimap area
-        minimap_area = QVBoxLayout()
+        minimap_area = QVBoxLayout(self.map_tab)
         minimap_area.setAlignment(Qt.AlignTop)
         mini_label = QLabel('Minimap')
         mini_label.setAlignment(Qt.AlignTop)
@@ -272,13 +338,44 @@ class App(QWidget):
         import_area = QHBoxLayout()
         import_area.setAlignment(Qt.AlignTop)
         import_area.addWidget(self.import_mask_button)
+        import_area.addWidget(self.import_all_masks_button)
         import_area.addWidget(self.import_layer_button)
         minimap_area.addLayout(import_area)
 
-        # console
-        minimap_area.addWidget(self.console)
+        chosen_figures_area = QVBoxLayout(self.references_tab)
+        chosen_figures_area.addWidget(QLabel("SAVED REFERENCES IN PERMANENT MEMORY"))
+        self.references_collection = ImageLinkCollection(self.scroll_to, self.load_current_image_thumbnail, delete_image=self.on_remove_reference, name='Reference frames')
+        chosen_figures_area.addWidget(self.references_collection)
+        
+        self.candidates_collection = ImageLinkCollection(self.scroll_to, self.load_current_image_thumbnail, name='Candidate frames')
+        chosen_figures_area.addWidget(QLabel("ANNOTATION CANDIDATES"))
+        chosen_figures_area.addWidget(self.candidates_collection)
 
-        draw_area.addLayout(minimap_area, 1)
+        tabs_layout.addWidget(self.tabs)
+        tabs_layout.addWidget(self.console)
+        draw_area.addLayout(tabs_layout, 1)
+
+        candidates_area = QVBoxLayout()
+        self.candidates_min_mask_size_edit = QLineEdit()
+        self.candidates_min_mask_size_edit.setToolTip("Minimal size a mask should have to be considered, % of the total image size."
+                                                      "\nIf it's smaller than the value specified, the frame will be ignored."
+                                                      "\nUsed to filter out \"junk\" frames or frames with very heavy occlusions.")
+        float_validator = QRegExpValidator(QRegExp(r"^(100(\.0+)?|[1-9]?\d(\.\d+)?|0(\.\d+)?)$"))
+        self.candidates_min_mask_size_edit.setValidator(float_validator)
+        self.candidates_min_mask_size_edit.setText("0.25")
+        self.candidates_k_slider = NamedSlider("k", 1, 20, 1, default=5)
+        self.candidates_k_slider.setToolTip("How many annotation candidates to select.")
+        self.candidates_alpha_slider = NamedSlider("α", 0, 100, 1, default=50, multiplier=0.01, min_text='Frames', max_text='Masks')
+        self.candidates_alpha_slider.setToolTip("Target importance."
+                                                "<br>If <b>0</b> the candidates will be the same regardless of which object is being segmented."
+                                                "<br>If <b>1</b> the only part of the image considered will be the one occupied by the mask.")
+        candidates_area.addWidget(QLabel("Min mask size, % of the total image size, 0-100"))
+        candidates_area.addWidget(self.candidates_min_mask_size_edit)
+        candidates_area.addWidget(QLabel("Candidates calculation hyperparameters"))
+        candidates_area.addWidget(self.candidates_k_slider)
+        candidates_area.addWidget(self.candidates_alpha_slider)
+        candidates_area.addWidget(self.compute_candidates_button)
+        tabs_layout.addLayout(candidates_area)
 
         layout = QVBoxLayout()
         layout.addLayout(draw_area)
@@ -312,6 +409,8 @@ class App(QWidget):
         self.brush_vis_alpha = np.zeros((self.height, self.width, 1), dtype=np.float32)
         self.cursur = 0
         self.on_showing = None
+        self.reference_ids = set()
+        self.candidates_ids = []
 
         # Zoom parameters
         self.zoom_pixels = 150
@@ -341,10 +440,12 @@ class App(QWidget):
         self.vis_target_objects = [1]
         # try to load the default overlay
         self._try_load_layer('./docs/ECCV-logo.png')
- 
+
         self.load_current_image_mask()
         self.show_current_frame()
         self.show()
+        self.style_new_reference()
+        self.load_existing_references()
 
         self.console_push_text('Initialized.')
         self.initialized = True
@@ -446,6 +547,28 @@ class App(QWidget):
         qImg = QImage(self.viz.data, width, height, bytesPerLine, QImage.Format_RGB888)
         self.main_canvas.setPixmap(QPixmap(qImg.scaled(self.main_canvas.size(),
                 Qt.KeepAspectRatio, Qt.FastTransformation)))
+        
+    def load_current_image_thumbnail(self, *args, size=128):
+        # all this instead of self.main_canvas.pixmap() because it contains the brush as well
+        viz = get_visualization(self.viz_mode, self.current_image, self.current_mask, 
+                            self.overlay_layer, self.vis_target_objects)
+        
+        height, width, channel = viz.shape
+        bytesPerLine = 3 * width
+        qImg = QImage(viz.data, width, height, bytesPerLine, QImage.Format_RGB888)
+        curr_pixmap = QPixmap(qImg.scaled(self.main_canvas.size(),
+                Qt.KeepAspectRatio, Qt.FastTransformation))
+
+        curr_size = curr_pixmap.size()
+        h = curr_size.height()
+        w = curr_size.width()
+
+        if h < w:
+            thumbnail = curr_pixmap.scaledToHeight(size)
+        else:
+            thumbnail = curr_pixmap.scaledToWidth(size)
+
+        return thumbnail
 
     def show_current_frame(self, fast=False):
         # Re-compute overlay and show the image
@@ -458,6 +581,25 @@ class App(QWidget):
 
         self.lcd.setText('{: 3d} / {: 3d}'.format(self.cursur, self.num_frames-1))
         self.tl_slider.setValue(self.cursur)
+
+        if self.cursur in self.reference_ids:
+            self.style_editing_reference()
+        else:
+            self.style_new_reference()
+
+    def style_editing_reference(self):
+        self.save_reference_button.setText("Update reference")
+        self.save_reference_button.setStyleSheet('QPushButton {background-color: #E4A11B; font-weight: bold; }')
+
+    def style_new_reference(self):
+        self.save_reference_button.setText("Save reference")
+        self.save_reference_button.setStyleSheet('QPushButton {background-color: #14A44D; font-weight: bold;}')
+
+    def load_existing_references(self):
+        for i in self.res_man.references:
+            self.scroll_to(i)
+            self.on_save_reference()
+        self.scroll_to(0)
 
     def pixel_pos_to_image_pos(self, x, y):
         # Un-scale and un-pad the label coordinates into image coordinates
@@ -531,6 +673,11 @@ class App(QWidget):
             self.load_current_image_mask()
             self.show_current_frame()
 
+    def scroll_to(self, idx):
+        assert self.tl_slider.minimum() <= idx <= self.tl_slider.maximum()
+        self.tl_slider.setValue(idx)
+        self.tl_slide()
+
     def brush_slide(self):
         self.brush_size = self.brush_slider.value()
         self.brush_label.setText('Brush size: %d' % self.brush_size)
@@ -541,12 +688,40 @@ class App(QWidget):
             # Initialization, forget about it
             pass
 
+    def confirm_ready_for_propagation(self):
+        if len(self.reference_ids) > 0:
+            return True
+        
+        qm = QErrorMessage(self)
+        qm.setWindowModality(Qt.WindowModality.WindowModal)
+        qm.showMessage("Save at least 1 reference!")
+
+        return False
+
+    def general_propagation_callback(self, propagation_type: str):
+        if not self.confirm_ready_for_propagation():
+            return
+        
+        self.tabs.setCurrentIndex(0)
+        if propagation_type == 'full':
+            self.on_full_propagation()
+        elif propagation_type == 'forward':
+            self.on_forward_propagation()
+        elif propagation_type == 'backward':
+            self.on_backward_propagation()
+    
+    def on_full_propagation(self):
+        self.on_clear_memory()
+        self.scroll_to(0)
+        self.on_forward_propagation()
+
     def on_forward_propagation(self):
         if self.propagating:
             # acts as a pause button
             self.propagating = False
         else:
             self.propagate_fn = self.on_next_frame
+            self.full_run_button.setEnabled(False)
             self.backward_run_button.setEnabled(False)
             self.forward_run_button.setText('Pause Propagation')
             self.on_propagation()
@@ -557,12 +732,14 @@ class App(QWidget):
             self.propagating = False
         else:
             self.propagate_fn = self.on_prev_frame
+            self.full_run_button.setEnabled(False)
             self.forward_run_button.setEnabled(False)
             self.backward_run_button.setText('Pause Propagation')
             self.on_propagation()
 
     def on_pause(self):
         self.propagating = False
+        self.full_run_button.setEnabled(True)
         self.forward_run_button.setEnabled(True)
         self.backward_run_button.setEnabled(True)
         self.clear_mem_button.setEnabled(True)
@@ -576,7 +753,13 @@ class App(QWidget):
         self.show_current_frame(fast=True)
 
         self.console_push_text('Propagation started.')
-        self.current_prob = self.processor.step(self.current_image_torch, self.current_prob[1:])
+        is_mask = self.cursur in self.reference_ids
+        msk = self.current_prob[1:] if self.cursur in self.reference_ids else None
+        current_prob, key, shrinkage, selection = self.processor.step(self.current_image_torch, msk, return_key_and_stuff=True)
+        if not is_mask:
+            self.current_prob = current_prob
+        self.res_man.add_key_and_stuff_with_mask(self.cursur, key, shrinkage, selection, self.current_prob[1:])
+        
         self.current_mask = torch_prob_to_numpy_mask(self.current_prob)
         # clear
         self.interacted_prob = None
@@ -590,11 +773,16 @@ class App(QWidget):
 
             self.load_current_image_mask(no_mask=True)
             self.load_current_torch_image_mask(no_mask=True)
+            is_mask = self.cursur in self.reference_ids
+            msk = self.current_prob[1:] if self.cursur in self.reference_ids else None
+            current_prob, key, shrinkage, selection = self.processor.step(self.current_image_torch, msk, return_key_and_stuff=True)
+            self.res_man.add_key_and_stuff_with_mask(self.cursur, key, shrinkage, selection, self.current_prob[1:])
 
-            self.current_prob = self.processor.step(self.current_image_torch)
-            self.current_mask = torch_prob_to_numpy_mask(self.current_prob)
-
-            self.save_current_mask()
+            if not is_mask:
+                self.current_prob = current_prob
+                self.current_mask = torch_prob_to_numpy_mask(self.current_prob)
+                self.save_current_mask()
+                
             self.show_current_frame(fast=True)
 
             self.update_memory_size()
@@ -602,7 +790,7 @@ class App(QWidget):
 
             if self.cursur == 0 or self.cursur == self.num_frames-1:
                 break
-
+        
         self.propagating = False
         self.curr_frame_dirty = False
         self.on_pause()
@@ -615,6 +803,84 @@ class App(QWidget):
     def on_commit(self):
         self.complete_interaction()
         self.update_interacted_mask()
+
+    def confirm_ready_for_candidates_selection(self):
+        if self.res_man.all_masks_present():
+            return True
+        
+        qm = QErrorMessage(self)
+        qm.setWindowModality(Qt.WindowModality.WindowModal)
+        qm.showMessage("Run propagation on all frames first!")
+
+        return False
+    
+    def on_compute_candidates(self):
+        def _update_candidates(candidates_ids):
+            print(candidates_ids)
+            for i in self.candidates_ids:
+                # removing any old candidates left
+                self.candidates_collection.remove_image(i)
+            self.candidates_ids = candidates_ids
+
+            prev_pos = self.cursur
+            for i in self.candidates_ids:
+                self.scroll_to(i)
+                self.candidates_collection.add_image(i)
+            self.scroll_to(prev_pos)
+            self.tabs.setCurrentIndex(1)
+
+        def _update_progress(i):
+            candidate_progress.setValue(i)
+
+        if not self.confirm_ready_for_candidates_selection():
+            return 
+
+        k = self.candidates_k_slider.value()
+        alpha = self.candidates_alpha_slider.value()
+        candidate_progress = QProgressDialog("Selecting candidates", None, 0, k, self, Qt.WindowFlags(Qt.WindowType.Dialog | ~Qt.WindowCloseButtonHint))
+        worker = Worker(select_next_candidates, self.res_man.keys, self.res_man.shrinkages, self.res_man.selections, self.res_man.small_masks, k, self.reference_ids, 
+                        print_progress=False, min_mask_presence_percent=float(self.candidates_min_mask_size_edit.text()), alpha=alpha) # Any other args, kwargs are passed to the run function
+        worker.signals.result.connect(_update_candidates)
+        worker.signals.progress.connect(_update_progress)
+
+        self.threadpool.start(worker)
+
+        candidate_progress.open()
+
+    def on_save_reference(self):
+        if self.interaction is not None:
+            self.on_commit()
+        current_image_torch, _ = image_to_torch(self.current_image)
+        current_prob = index_numpy_to_one_hot_torch(self.current_mask, self.num_objects+1).cuda()
+
+        msk = current_prob[1:]
+        a = perf_counter()
+        is_update = self.processor.put_to_permanent_memory(current_image_torch, msk, self.cursur)
+        b = perf_counter()
+
+        self.console_push_text(f"Saving took {(b-a)*1000:.2f} ms.")
+
+        if is_update:
+            self.reference_ids.remove(self.cursur)
+            self.references_collection.remove_image(self.cursur)
+
+        self.reference_ids.add(self.cursur)
+        self.references_collection.add_image(self.cursur)
+        self.res_man.add_reference(self.cursur)
+        
+        if self.cursur in self.candidates_ids:
+            self.candidates_ids.remove(self.cursur)
+            self.candidates_collection.remove_image(self.cursur)
+
+        self.show_current_frame()
+        self.tabs.setCurrentIndex(1)
+
+    def on_remove_reference(self, img_idx):
+        self.processor.remove_from_permanent_memory(img_idx)
+        self.reference_ids.remove(img_idx)
+        self.res_man.remove_reference(img_idx)
+
+        self.show_current_frame()
 
     def on_prev_frame(self):
         # self.tl_slide will trigger on setValue
@@ -678,6 +944,7 @@ class App(QWidget):
         self.vis_brush(self.last_ex, self.last_ey)
         self.update_interact_vis()
         self.show_current_frame()
+        self.color_picker.select(self.current_object)
 
     def clear_brush(self):
         self.brush_vis_map.fill(0)
@@ -821,10 +1088,10 @@ class App(QWidget):
 
     def update_memory_size(self):
         try:
-            max_work_elements = self.processor.memory.max_work_elements
+            max_work_elements = self.processor.memory.max_work_elements + self.processor.memory.permanent_work_mem.size
             max_long_elements = self.processor.memory.max_long_elements
 
-            curr_work_elements = self.processor.memory.work_mem.size
+            curr_work_elements = self.processor.memory.temporary_work_mem.size + self.processor.memory.permanent_work_mem.size
             curr_long_elements = self.processor.memory.long_mem.size
 
             self.work_mem_gauge.setFormat(f'{curr_work_elements} / {max_work_elements}')
@@ -860,22 +1127,77 @@ class App(QWidget):
             self.processor.update_config(self.config)
 
     def on_clear_memory(self):
-        self.processor.clear_memory()
+        self.processor.clear_memory(keep_permanent=True)
         torch.cuda.empty_cache()
         self.update_gpu_usage()
         self.update_memory_size()
 
     def _open_file(self, prompt):
         options = QFileDialog.Options()
-        file_name, _ = QFileDialog.getOpenFileName(self, prompt, "", "Image files (*)", options=options)
+        file_name, _ = QFileDialog.getOpenFileName(self, prompt, self.last_opened_directory, "Image files (*)", options=options)
+        if file_name:
+            self.last_opened_directory = str(Path(file_name).parent)
         return file_name
 
-    def on_import_mask(self):
-        file_name = self._open_file('Mask')
-        if len(file_name) == 0:
-            return
+    def on_import_all_masks(self):
+        dir_path = QFileDialog.getExistingDirectory()
+        if dir_path:
+            self.last_opened_directory = dir_path
+            
+            all_correct = True
+            frame_ids = []
+            incorrect_files = []
+            pattern = re.compile(r'([0-9]+)')
+            files_paths = sorted(Path(dir_path).iterdir())
+            for p_f in files_paths:
+                match = pattern.search(p_f.name)
+                if match:
+                    frame_id = int(match.string[match.start():match.end()])
+                    frame_ids.append(frame_id)
+                else:
+                    all_correct = False
+                    incorrect_files.apend(p_f.name)
+                    
+            
+            if not all_correct or frame_ids != sorted(frame_ids):
+                qm = QErrorMessage(self)
+                qm.setWindowModality(Qt.WindowModality.WindowModal)
+                broken_file_names = '\n'.join(incorrect_files)
+                qm.showMessage(f"Files with incorrect names: {broken_file_names}")
 
-        mask = self.res_man.read_external_image(file_name, size=(self.height, self.width))
+            else:
+                if len(frame_ids) > 10:
+                    qm = QMessageBox(QMessageBox.Icon.Question, "Confirm mask replacement", "")
+                    question = f"There are more than 10 masks to import, so confirmations for each individual one would not be asked. Are you willing to continue?"
+                    ret = qm.question(self, 'Confirm mask replacement', question, qm.Yes | qm.No)
+                    if ret == qm.Yes:
+                        progress_dialog = QProgressDialog("Importing masks", None, 0, len(frame_ids), self, Qt.WindowFlags(Qt.WindowType.Dialog | ~Qt.WindowCloseButtonHint))
+                        progress_dialog.open()
+                        a = perf_counter()
+                        for i, p_f in zip(frame_ids, files_paths):
+                            # Only showing progress bar to speed up
+                            self.cursur = i
+                            self.on_import_mask(str(p_f), ask_confirmation=False)
+                            progress_dialog.setValue(i + 1)
+                            QApplication.processEvents()
+                        b = perf_counter()
+                        self.console_push_text(f"Importing {len(frame_ids)} masks took {b-a:.2f} seconds ({len(frame_ids)/(b-a):.2f} FPS)")
+                    self.cursur = 0
+                            
+                else:
+                    for i, p_f in zip(frame_ids, files_paths):
+                        self.scroll_to(i)
+                        self.on_import_mask(str(p_f), ask_confirmation=True)
+    
+    def on_import_mask(self, mask_file_path=None, ask_confirmation=True):
+        if mask_file_path:
+            file_name = mask_file_path
+        else:
+            file_name = self._open_file('Mask')
+            if len(file_name) == 0:
+                return
+
+        mask = self.res_man.read_external_image(file_name, size=(self.height, self.width), force_mask=True)
 
         shape_condition = (
             (len(mask.shape) == 2) and
@@ -892,11 +1214,29 @@ class App(QWidget):
         elif not object_condition:
             self.console_push_text(f'Expected {self.num_objects} objects. Got {mask.max()} objects instead.')
         else:
-            self.console_push_text(f'Mask file {file_name} loaded.')
-            self.current_image_torch = self.current_prob = None
-            self.current_mask = mask
-            self.show_current_frame()
-            self.save_current_mask()
+            if ask_confirmation:
+                qm = QMessageBox(QMessageBox.Icon.Question, "Confirm mask replacement", "")
+                question = f"Replace mask for current frame {self.cursur} with {Path(file_name).name}?"
+                ret = qm.question(self, 'Confirm mask replacement', question, qm.Yes | qm.No)
+
+            if not ask_confirmation or ret == qm.Yes:
+                self.console_push_text(f'Mask file {file_name} loaded.')
+                self.current_image_torch = self.current_prob = None
+                self.current_mask = mask
+
+                if ask_confirmation:
+                    # for speedup purposes
+                    self.curr_frame_dirty = False
+                    self.reset_this_interaction()
+                    self.show_current_frame()
+
+                self.save_current_mask()
+
+            if ask_confirmation:
+                # Only save references if it's an individual image or a few (< 10)
+                # If the user is importing 1000+ masks, the memory is going to explode
+                self.on_save_reference()                
+
 
     def on_import_layer(self):
         file_name = self._open_file('Layer')

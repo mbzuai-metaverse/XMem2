@@ -89,6 +89,10 @@ class KeyValueMemoryStore:
                 else:
                     self.v.append(gv)
 
+        pos = int((self.k.shape[-1] + 1e-9) // (key.shape[-1] + 1e-9)) - 1  # index of newly added frame
+
+        return pos
+
     def update_usage(self, usage):
         # increase all life count by 1
         # increase use of indexed elements
@@ -98,6 +102,26 @@ class KeyValueMemoryStore:
         self.use_count += usage.view_as(self.use_count)
         self.life_count += 1
 
+    def replace_at(self, start_pos: int, key, value, shrinkage=None, selection=None):
+        start = start_pos * key.shape[-1]
+        end = (start_pos + 1) * key.shape[-1]
+
+        self.k[:,:,start:end] = key
+
+        for gi in range(self.num_groups):
+            self.v[gi][:, :, start:end] = value[gi]
+
+        if self.s is not None and shrinkage is not None:
+            self.s[:, :, start:end] = shrinkage
+        
+        if self.e is not None and selection is not None:
+            self.e[:, :, start:end] = selection
+
+    def remove_at(self, start: int, elem_size: int):
+        end = start + elem_size
+
+        self.sieve_by_range(start, end, min_size=0)  # remove the value irrespective of its size 
+
     def sieve_by_range(self, start: int, end: int, min_size: int):
         # keep only the elements *outside* of this range (with some boundary conditions)
         # i.e., concat (a[:start], a[end:])
@@ -105,6 +129,7 @@ class KeyValueMemoryStore:
         # (because they are not consolidated)
 
         if end == 0:
+            # just sieves till the `start`
             # negative 0 would not work as the end index!
             self.k = self.k[:,:,:start]
             if self.count_usage:

@@ -1,10 +1,17 @@
+import json
 import os
 from os import path
+from pathlib import Path
 import shutil
 import collections
 
 import cv2
 from PIL import Image
+import torch
+from torchvision.transforms import Resize, InterpolationMode
+
+from util.image_loader import PaletteConverter
+
 if not hasattr(Image, 'Resampling'):  # Pillow<9.0
     Image.Resampling = Image
 import numpy as np
@@ -44,11 +51,17 @@ class ResourceManager:
         self.workspace = config['workspace']
         self.size = config['size']
         self.palette = davis_palette
+        self.palette_converter = PaletteConverter(self.palette)
 
         # create temporary workspace if not specified
         if self.workspace is None:
             if images is not None:
-                basename = path.basename(images)
+                p_images = Path(images)
+                if p_images.name == 'JPEGImages' or (Path.cwd() / 'workspace') in p_images.parents:
+                    # take the name instead of actual images dir (second case checks for videos already in ./workspace )
+                    basename = p_images.parent.name
+                else:
+                    basename = p_images.name
             elif video is not None:
                 basename = path.basename(video)[:-4]
             else:
@@ -58,6 +71,16 @@ class ResourceManager:
             self.workspace = path.join('./workspace', basename)
 
         print(f'Workspace is in: {self.workspace}')
+        self.workspace_info_file = path.join(self.workspace, 'info.json')
+        self.references = set()
+        self._num_objects = None
+        self._try_load_info()
+
+        if config['num_objects'] is not None:  # forced overwrite from user
+            self._num_objects = config['num_objects']
+        elif self._num_objects is None:  # both are None, single object first run use case
+            self._num_objects = config['num_objects_default_value']
+        self._save_info()
 
         # determine the location of input images
         need_decoding = False
@@ -100,6 +123,13 @@ class ResourceManager:
         self.height, self.width = self.get_image(0).shape[:2]
         self.visualization_init = False
 
+        self._resize = None
+        self._masks = None
+        self._keys = None
+        self._keys_processed = np.zeros(self.length, dtype=bool)
+        self.key_h = None
+        self.key_w = None
+
     def _extract_frames(self, video):
         cap = cv2.VideoCapture(video)
         frame_index = 0
@@ -115,7 +145,7 @@ class ResourceManager:
                 new_h = (h*self.size//min(w, h))
                 if new_w != w or new_h != h:
                     frame = cv2.resize(frame,dsize=(new_w,new_h),interpolation=cv2.INTER_AREA)
-            cv2.imwrite(path.join(self.image_dir, f'{frame_index:07d}.jpg'), frame)
+            cv2.imwrite(path.join(self.image_dir, f'frame_{frame_index:06d}.jpg'), frame)
             frame_index += 1
             bar.update(frame_index)
         bar.finish()
@@ -137,6 +167,61 @@ class ResourceManager:
                     frame = cv2.resize(frame,dsize=(new_w,new_h),interpolation=cv2.INTER_AREA)
                 cv2.imwrite(path.join(self.image_dir, image_name), frame)
         print('Done!')
+
+    def add_key_and_stuff_with_mask(self, ti, key, shrinkage, selection, mask):
+        if self._keys is None:
+            c, h, w = key.squeeze().shape
+            if self.key_h is None:
+                self.key_h = h
+            if self.key_w is None:
+                self.key_w = w
+            c_mask, h_mask, w_mask = mask.shape
+            self._keys = torch.empty((self.length, c, h, w), dtype=key.dtype, device=key.device)
+            self._shrinkages = torch.empty((self.length, 1, h, w), dtype=key.dtype, device=key.device)
+            self._selections = torch.empty((self.length, c, h, w), dtype=key.dtype, device=key.device)
+            self._masks = torch.empty((self.length, c_mask, h_mask, w_mask), dtype=mask.dtype, device=key.device)
+            # self._resize = Resize((h, w), interpolation=InterpolationMode.NEAREST)
+        
+        if not self._keys_processed[ti]:
+            # keys don't change for the video, so we only save them once
+            self._keys[ti] = key
+            self._shrinkages[ti] = shrinkage
+            self._selections[ti] = selection
+            self._keys_processed[ti] = True
+                
+        self._masks[ti] = mask# self._resize(mask)
+
+    def all_masks_present(self):
+        return self._keys_processed.sum() == self.length
+    
+    def add_reference(self, frame_id: int):
+        self.references.add(frame_id)
+        self._save_info()
+
+    def remove_reference(self, frame_id: int):
+        print(self.references)
+        self.references.remove(frame_id)
+        self._save_info()
+
+    def _save_info(self):
+        p_workspace_subdir = Path(self.workspace_info_file).parent
+        p_workspace_subdir.mkdir(parents=True, exist_ok=True)
+        with open(self.workspace_info_file, 'wt') as f:
+            data = {'references': sorted(self.references), 'num_objects': self._num_objects}
+
+            json.dump(data, f, indent=4)
+
+    def _try_load_info(self):
+        try:
+            with open(self.workspace_info_file) as f:
+                data = json.load(f)
+                self._num_objects = data['num_objects']
+
+                # We might have num_objects, but not references if imported the project
+                self.references = set(data['references'])
+        except Exception:
+            pass
+
 
     def save_mask(self, ti, mask):
         # mask should be uint8 H*W without channels
@@ -180,13 +265,36 @@ class ResourceManager:
         else:
             return None
 
-    def read_external_image(self, file_name, size=None):
+    def read_external_image(self, file_name, size=None, force_mask=False):
         image = Image.open(file_name)
         is_mask = image.mode in ['L', 'P']
+
         if size is not None:
             # PIL uses (width, height)
             image = image.resize((size[1], size[0]), 
-                    resample=Image.Resampling.NEAREST if is_mask else Image.Resampling.BICUBIC)
+                    resample=Image.Resampling.NEAREST if is_mask or force_mask else Image.Resampling.BICUBIC)
+        
+        if force_mask and image.mode != 'P':
+            image = self.palette_converter.image_to_index_mask(image)
+        #     if image.mode in ['RGB', 'L'] and len(image.getcolors()) <= 2:
+        #         image = np.array(image.convert('L'))
+        #         # hardcoded for b&w images
+        #         image = np.where(image, 1, 0)  # 255 (or whatever) -> binarize
+
+        #         return image.astype('uint8')
+        #     elif image.mode == 'RGB':
+        #         image = image.convert('P', palette=self.palette)
+        #         tmp_image = np.array(image)
+        #         out_image = np.zeros_like(tmp_image)
+        #         for i, c in enumerate(np.unique(tmp_image)):
+        #             if i == 0:
+        #                 continue
+        #             out_image[tmp_image == c] = i  # palette indices into 0, 1, 2, ...
+        #         self.palette = image.getpalette()
+        #         return out_image
+                
+        #     image = image.convert('P', palette=self.palette)  # saved without DAVIS palette, just number objects 0, 1, ...
+            
         image = np.array(image)
         return image
 
@@ -204,3 +312,24 @@ class ResourceManager:
     @property
     def w(self):
         return self.width
+    
+    @property
+    def small_masks(self):
+        return self._masks
+
+    @property
+    def keys(self):
+        return self._keys
+        
+
+    @property
+    def shrinkages(self):
+        return self._shrinkages
+    
+    @property
+    def selections(self):
+        return self._selections
+    
+    @property
+    def num_objects(self):
+        return self._num_objects

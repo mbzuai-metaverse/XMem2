@@ -30,17 +30,18 @@ Inspired by movie industry use cases, **XMem++** is an Interactive Video Segment
 
 - **parts** of the objects (only 6 annotated frames provided):
 
-https://github.com/max810/XMem2/assets/29955120/d700ccc4-194e-46d8-97b2-05b0587496f4
+https://github.com/max810/XMem2/assets/29955120/3d3761e2-2e73-484a-a1ed-ec717d8fed05
+
 
 - **fluid** objects like hair (only 5 annotated frames provided):
 
-https://github.com/max810/XMem2/assets/29955120/06d4d8ee-3092-4fe6-a0c2-da7e3fc4a01c
+https://github.com/max810/XMem2/assets/29955120/ba746a2a-6333-4654-b39c-b93b9eb1ae0c
 
 - **deformable** objects like clothes (5 and 11 annotated frames used accordingly)
 
-https://github.com/max810/XMem2/assets/29955120/a8e75648-b8cf-4312-8077-276597256289
+https://github.com/max810/XMem2/assets/29955120/3a8750e0-44ca-4cce-9b16-8f7154dbb217
 
-https://github.com/max810/XMem2/assets/29955120/63e6704c-3292-4690-970e-818ab2950c56
+https://github.com/max810/XMem2/assets/29955120/689512a6-f60a-4258-b282-4b799f12b0c9
 
 ### [[LIMITATIONS]](docs/LIMITATIONS.md)
 

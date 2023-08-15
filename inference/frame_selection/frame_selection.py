@@ -22,7 +22,6 @@ def first_frame_only(*args, **kwargs):
 
 def uniformly_selected_frames(dataloader, *args, how_many_frames=10, **kwargs) -> List[int]:
     # baseline
-    # TODO: debug and check if works
     num_total_frames = len(dataloader)
     return np.linspace(0, num_total_frames - 1, how_many_frames).astype(int).tolist()
 

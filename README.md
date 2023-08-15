@@ -4,7 +4,7 @@
 
 [Maksym Bekuzarov](https://www.linkedin.com/in/maksym-bekuzarov-947490165/)$^\dagger$, [Ariana Michelle Bermudez Venegas](https://www.linkedin.com/in/ariana-bermudez/)$^\dagger$, [Joon-Young Lee](https://joonyoung-cv.github.io/), [Hao Li](https://www.hao-li.com/Hao_Li/Hao_Li_-_about_me.html)
 
-[Metaverse Lab TODO LINK]() @ [MBZUAI](https://mbzuai.ac.ae/) (Mohamed bin Zayed University of Artificial Intelligence)
+Metaverse Lab @ [MBZUAI](https://mbzuai.ac.ae/) (Mohamed bin Zayed University of Artificial Intelligence)
 
 [[arXiv]](https://arxiv.org/abs/2307.15958) [[PDF]](https://arxiv.org/pdf/2307.15958.pdf) [[Project Page]](https://xmem2.surge.sh)
 
@@ -291,7 +291,7 @@ We used XMem++ to collect and annotate a dataset of challenging and practical us
 - 100% open and free to download.
 
 ### Download
-Separate sequences and masks are available here: [[TODO Google Drive]](TODO)
+Separate sequences and masks are available here: [[Google Drive]](https://drive.google.com/drive/u/0/folders/1Q7gSCCgemUyweu-7-Yb9G_W55Muq5-bC)
 
 PUMaVOS `.zip` download link: [[TODO Google Drive]](TODO)
 

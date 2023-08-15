@@ -61,7 +61,6 @@ class MemoryManager:
     def match_memory(self, query_key, selection, disable_usage_updates=False):
         # query_key: B x C^k x H x W
         # selection:  B x C^k x H x W
-        # TODO: keep groups in both..?
         # 1x64x30x54
 
         # = permanent_work_mem.num_groups, since it's always >= temporary_work_mem.num_groups

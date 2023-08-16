@@ -283,9 +283,9 @@ We used XMem++ to collect and annotate a dataset of challenging and practical us
 
 
 **Partial and Unusual Masks for Video Object Segmentation (PUMaVOS)** dataset has the following properties:
-- **23** videos, **19770** densely-annotated frames;
+- **24** videos, **21187** densely-annotated frames;
 - Covers complex practical use cases such as object parts, frequent occlusions, fast motion, deformable objects and more;
-- Average length of the video is **659 frames** or **28s**, with the longer ones spanning **1min**;
+- Average length of the video is **883 frames** or **29s**, with the longer ones spanning **1min**;
 - Fully densely annotated at 30FPS;
 - Benchmark-oriented: no separation into training/test, designed to be as diverse as possible to test your models;
 - 100% open and free to download.
@@ -293,7 +293,7 @@ We used XMem++ to collect and annotate a dataset of challenging and practical us
 ### Download
 Separate sequences and masks are available here: [[Google Drive]](https://drive.google.com/drive/u/0/folders/1Q7gSCCgemUyweu-7-Yb9G_W55Muq5-bC)
 
-PUMaVOS `.zip` download link: [[TODO Google Drive]](TODO)
+PUMaVOS `.zip` download link: [[Google Drive]](TODO)
 
 ### LICENSE
 

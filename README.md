@@ -293,8 +293,10 @@ We used XMem++ to collect and annotate a dataset of challenging and practical us
 
 ### Download
 Separate sequences and masks are available here: [[Google Drive]](https://drive.google.com/drive/u/0/folders/1Q7gSCCgemUyweu-7-Yb9G_W55Muq5-bC)
+[[Mirror Google Drive]](https://drive.google.com/drive/folders/1_Cpc1fxHuVLFZidw5_0Lfea2EaSVfkC6?usp=drive_link)
 
 PUMaVOS `.zip` download link: [[Google Drive]](https://drive.google.com/file/d/1VAClrxhWWiu9Y39QtcoUhp2YBN7R_ZCD/view?usp=sharing)
+[[Mirror Google Drive]](https://drive.google.com/file/d/1qPqg72sqlwCMyvgHFFKBd2HCKFguNJCT/view?usp=drive_link)
 
 ### LICENSE
 

@@ -245,6 +245,17 @@ class ParallelImageSaver:
         self._object_color = overlay_color_if_b_and_w
         self._finished = Value('b', False)
 
+    def __getstate__(self):
+        # To solve issue in python 3.9.6 of multiprocessing.Process instances are unserializable
+        # capture what is normally pickled
+        state = self.__dict__.copy()
+
+        # remove unpicklable/problematic variables
+        # (multiprocessing.Process in this case)
+        state['_mask_saver_worker'] = None
+        state['_overlay_saver_worker'] = None
+        return state
+    
     def save_mask(self, mask: Image.Image, frame_name: str):
         self._mask_queue.put((mask, frame_name, 'masks', '.png'))
 

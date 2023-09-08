@@ -27,4 +27,4 @@ if __name__ == '__main__':
 
     p_out = Path(args.output)
     p_out.mkdir(parents=True, exist_ok=True)
-    run_on_video(args.video, args.masks, args.output)
+    run_on_video(args.video, args.masks, args.output, frames_with_masks)

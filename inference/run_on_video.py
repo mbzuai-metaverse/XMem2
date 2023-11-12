@@ -39,6 +39,7 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
                         object_color_if_single_object=(255, 255, 255), 
                         print_fps=False,
                         image_saving_max_queue_size=200):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     torch.autograd.set_grad_enabled(False)
     frames_with_masks = set(frames_with_masks)
@@ -75,7 +76,7 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
             with torch.cuda.amp.autocast(enabled=True):
                 data: Sample = data  # Just for Intellisense
                 # No batch dimension here, just single samples
-                sample = replace(data, rgb=data.rgb.cuda())
+                sample = replace(data, rgb=data.rgb.to(device))
                 
                 if ti in frames_with_masks:
                     msk = sample.mask
@@ -87,7 +88,7 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
                     # https://github.com/hkchengrex/XMem/issues/21 just make exhaustive = True
                     msk, labels = mapper.convert_mask(
                         msk.numpy(), exhaustive=True)
-                    msk = torch.Tensor(msk).cuda()
+                    msk = torch.Tensor(msk).to(device)
                     if sample.need_resize:
                         msk = vid_reader.resize_mask(msk.unsqueeze(0))[0]
                     processor.set_all_labels(list(mapper.remappings.values()))
@@ -145,8 +146,9 @@ def _inference_on_video(frames_with_masks, imgs_in_path, masks_in_path, masks_ou
     return pd.DataFrame(stats)
 
 def _load_main_objects(imgs_in_path, masks_in_path, config):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model_path = config['model']
-    network = XMem(config, model_path, pretrained_key_encoder=False, pretrained_value_encoder=False).cuda().eval()
+    network = XMem(config, model_path, pretrained_key_encoder=False, pretrained_value_encoder=False).to(device).eval()
     if model_path is not None:
         model_weights = torch.load(model_path)
         network.load_weights(model_weights, init_as_zero_if_needed=True)
@@ -197,17 +199,18 @@ def _create_dataloaders(imgs_in_path: Union[str, PathLike], masks_in_path: Union
 
 
 def _preload_permanent_memory(frames_to_put_in_permanent_memory: List[int], vid_reader: VideoReader, mapper: MaskMapper, processor: InferenceCore, augment_images_with_masks=False):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     total_preloading_time = 0
     at_least_one_mask_loaded = False
     for j in frames_to_put_in_permanent_memory:
         sample: Sample = vid_reader[j]
-        sample = replace(sample, rgb=sample.rgb.cuda())
+        sample = replace(sample, rgb=sample.rgb.to(device))
 
         # https://github.com/hkchengrex/XMem/issues/21 just make exhaustive = True
         if sample.mask is None:
             raise FileNotFoundError(f"Couldn't find mask {j}! Check that the filename is either the same as for frame {j} or follows the `frame_%06d.png` format if using a video file for input.")
         msk, labels = mapper.convert_mask(sample.mask, exhaustive=True)
-        msk = torch.Tensor(msk).cuda()
+        msk = torch.Tensor(msk).to(device)
 
         if min(msk.shape) == 0:  # empty mask, e.g. [1, 0, 720, 1280]
             warn(f"Skipping adding frame {j} to permanent memory, as the mask is empty")
@@ -232,7 +235,7 @@ def _preload_permanent_memory(frames_to_put_in_permanent_memory: List[int], vid_
 
             for img_aug, mask_aug in augs:
                 # tensor -> PIL.Image -> tensor -> whatever normalization vid_reader applies
-                rgb_aug = vid_reader.im_transform(img_aug(rgb_raw)).cuda()
+                rgb_aug = vid_reader.im_transform(img_aug(rgb_raw)).to(device)
 
                 msk_aug = mask_aug(msk)
 

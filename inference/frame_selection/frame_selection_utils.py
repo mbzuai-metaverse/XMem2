@@ -13,12 +13,13 @@ def extract_keys(dataloder, processor, print_progress=False, flatten=True, **kwa
     shrinkages = []
     selections = []
     device = None
+    system_device = 'cuda' if torch.cuda.is_available() else 'cpu'
     with torch.no_grad():  # just in case
         key_sum = None
 
         for ti, data in enumerate(tqdm(dataloder, disable=not print_progress, desc='Calculating key features')):
             data: Sample = data
-            rgb = data.rgb.cuda()
+            rgb = data.rgb.to(system_device)
             key, shrinkage, selection = processor.encode_frame_key(rgb)
 
             if key_sum is None:

@@ -79,6 +79,8 @@ class FreeInteraction(Interaction):
         self.curr_path = [[] for _ in range(self.K + 1)]
 
         self.size = None
+        
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     def set_size(self, size):
         self.size = size
@@ -125,7 +127,7 @@ class FreeInteraction(Interaction):
         self.curr_path = [[] for _ in range(self.K + 1)]
 
     def predict(self):
-        self.out_prob = index_numpy_to_one_hot_torch(self.drawn_map, self.K+1).cuda()
+        self.out_prob = index_numpy_to_one_hot_torch(self.drawn_map, self.K+1).to(self.device)
         # self.out_prob = torch.from_numpy(self.drawn_map).float().cuda()
         # self.out_prob, _ = pad_divide_by(self.out_prob, 16, self.out_prob.shape[-2:])
         # self.out_prob = aggregate_sbg(self.out_prob, keep_bg=True)

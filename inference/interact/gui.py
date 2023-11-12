@@ -64,6 +64,7 @@ class App(QWidget):
         self.res_man = resource_manager
         self.threadpool = QThreadPool()
         self.last_opened_directory = str(Path.home())
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         self.num_frames = len(self.res_man)
         self.height, self.width = self.res_man.h, self.res_man.w
@@ -399,7 +400,7 @@ class App(QWidget):
         self.current_image = np.zeros((self.height, self.width, 3), dtype=np.uint8) 
         self.current_image_torch = None
         self.current_mask = np.zeros((self.height, self.width), dtype=np.uint8)
-        self.current_prob = torch.zeros((self.num_objects, self.height, self.width), dtype=torch.float).cuda()
+        self.current_prob = torch.zeros((self.num_objects, self.height, self.width), dtype=torch.float).to(self.device)
 
         # initialize visualization
         self.viz_mode = 'davis'
@@ -493,7 +494,7 @@ class App(QWidget):
             self.current_image_torch, self.current_image_torch_no_norm = image_to_torch(self.current_image)
 
         if self.current_prob is None and not no_mask:
-            self.current_prob = index_numpy_to_one_hot_torch(self.current_mask, self.num_objects+1).cuda()
+            self.current_prob = index_numpy_to_one_hot_torch(self.current_mask, self.num_objects+1).to(self.device)
 
     def compose_current_im(self):
         self.viz = get_visualization(self.viz_mode, self.current_image, self.current_mask, 
@@ -851,7 +852,7 @@ class App(QWidget):
         if self.interaction is not None:
             self.on_commit()
         current_image_torch, _ = image_to_torch(self.current_image)
-        current_prob = index_numpy_to_one_hot_torch(self.current_mask, self.num_objects+1).cuda()
+        current_prob = index_numpy_to_one_hot_torch(self.current_mask, self.num_objects+1).to(self.device)
 
         msk = current_prob[1:]
         a = perf_counter()
@@ -985,7 +986,7 @@ class App(QWidget):
         if self.curr_interaction == 'Scribble':
             if last_interaction is None or type(last_interaction) != ScribbleInteraction:
                 self.complete_interaction()
-                new_interaction = ScribbleInteraction(image, torch.from_numpy(self.current_mask).float().cuda(), 
+                new_interaction = ScribbleInteraction(image, torch.from_numpy(self.current_mask).float().to(self.device), 
                         (h, w), self.s2m_controller, self.num_objects)
         elif self.curr_interaction == 'Free':
             if last_interaction is None or type(last_interaction) != FreeInteraction:
@@ -1264,7 +1265,7 @@ class App(QWidget):
             else:
                 self.console_push_text(f'Layer file {file_name} loaded.')
                 self.overlay_layer = layer
-                self.overlay_layer_torch = torch.from_numpy(layer).float().cuda()/255
+                self.overlay_layer_torch = torch.from_numpy(layer).float().to(self.device)/255
                 self.show_current_frame()
         except FileNotFoundError:
             self.console_push_text(f'{file_name} not found.')

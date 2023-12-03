@@ -1,6 +1,6 @@
 # Interactive GUI
 
-First, set up the required packages following [Installation steps in REDME](../README.md#getting-started). Don't forget to downlaod the pretrained models from there as well.
+First, set up the required packages following [Installation steps in README](../README.md#getting-started). Don't forget to download the pretrained models from there as well.
 
 You will need some additional packages and pretrained models for the GUI. For the packages,
 

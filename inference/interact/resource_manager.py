@@ -113,6 +113,7 @@ class ResourceManager:
 
         # read all frame names
         self.names = sorted(os.listdir(self.image_dir))
+        self.img_extension = self.names[0][-4:] if self.names else None
         self.names = [f[:-4] for f in self.names] # remove extensions
         self.length = len(self.names)
 
@@ -249,7 +250,7 @@ class ResourceManager:
         # returns H*W*3 uint8 array
         assert 0 <= ti < self.length
 
-        image = Image.open(path.join(self.image_dir, self.names[ti]+'.jpg'))
+        image = Image.open(path.join(self.image_dir, self.names[ti]+self.img_extension))
         image = np.array(image)
         return image
 

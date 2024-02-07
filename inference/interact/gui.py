@@ -904,7 +904,7 @@ class App(QWidget):
             self.timer.stop()
             self.play_button.setText('Play Video')
         else:
-            self.timer.start(1000 / 30)
+            self.timer.start(33)
             self.play_button.setText('Stop Video')
 
     def on_reset_mask(self):

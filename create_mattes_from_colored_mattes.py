@@ -182,6 +182,7 @@ def create_frame_dict(files):
     return frame_dict
 
 
+# add comment
 
 parser = argparse.ArgumentParser(description='Create black and white mattes for elements in color mattes.')
 

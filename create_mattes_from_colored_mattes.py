@@ -54,6 +54,7 @@ def get_frame_number(filename):
 
 def get_frame_range(folder_path):
     """Get the min and max frame numbers for the files in the given path."""
+
     frame_numbers = []
 
     # looks for a sequence of digits (\d+) followed by ".png" and ensures that it is a whole word
@@ -65,7 +66,7 @@ def get_frame_range(folder_path):
         if match:
             frame_numbers.append(int(match.group(1)))
 
-        return min(frame_numbers), max(frame_numbers)
+    return min(frame_numbers), max(frame_numbers)
 
 
 def create_black_matte_filename(existing_file, frame_number):

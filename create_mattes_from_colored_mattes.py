@@ -7,10 +7,10 @@ import csv
 import ast
 import argparse
 
-matte_char_to_color = {}
+matte_element_to_color = {}
 
 
-def populate_char_to_color_dict(csv_file_path):
+def populate_element_to_color_dict(csv_file_path):
     """
     From the csv file mapping XMem2 matte colors to shot elements, create a dictionary with the elements as keys.
     Note the BGR colors for OpenCV.
@@ -21,7 +21,7 @@ def populate_char_to_color_dict(csv_file_path):
 
             for row in csv_reader:
                 element = row['Element'].lower().replace(" ", "")
-                matte_char_to_color[element] = tuple(map(int, row['BGRColor'].strip('()').split(', ')))
+                matte_element_to_color[element] = tuple(map(int, row['BGRColor'].strip('()').split(', ')))
     else:
         print(f"{csv_file_path} does not exist. Please supply a valid csv file to map matte colors to elements.")
         sys.exit(1)
@@ -131,7 +131,7 @@ def get_matte_colors(image):
     return unique_colors_list
 
 
-def get_char_bw_matte_from_colormatte(image, target_color):
+def get_element_bw_matte_from_colormatte(image, target_color):
     """Create a black and white matte from the area matted by the target color."""
     # Convert the target color to a NumPy array
     target_color_np = np.array(target_color, dtype=np.uint8)
@@ -147,14 +147,13 @@ def create_black_matte(width, height):
     return np.zeros((height, width, 3), dtype=np.uint8)
 
 
-def save_bw_matte(matte, character_matte_path, matte_filename):
+def save_bw_matte(matte, element_matte_path, matte_filename):
     """Save the black and white matte"""
-    # Create the character matte path if it does not exist
-    os.makedirs(character_matte_path, exist_ok=True)
+    os.makedirs(element_matte_path, exist_ok=True)
 
     try:
-        cv2.imwrite(rf'{character_matte_path}\{matte_filename}.png', matte)
-        print(rf'Saved image {character_matte_path}\{matte_filename}.png')
+        cv2.imwrite(rf'{element_matte_path}\{matte_filename}.png', matte)
+        print(rf'Saved image {element_matte_path}\{matte_filename}.png')
     except Exception as e:
         print(f"Could not save file: {e}")
 
@@ -215,13 +214,13 @@ print('increment', args.increment)
 
 matte_path = get_matte_path(args.colormatte_path)
 
-# Use the csv file to create a matte color lookup by character
-populate_char_to_color_dict(args.map_colors_path)
+# Use the csv file to create a matte color lookup by element
+populate_element_to_color_dict(args.map_colors_path)
 
 
 invalid_elements = []
 for element in bw_matte_elements:
-    if element not in matte_char_to_color:
+    if element not in matte_element_to_color:
         invalid_elements.append(element)
         if invalid_elements:
             print(f"The following elements were requested and are invalid shot elements: {invalid_elements}")
@@ -253,10 +252,10 @@ for frame in range(matte_start_frame, matte_end_frame + 1, args.increment):
 
         for element in bw_matte_elements:
             element_matte_path = rf'{matte_path}\{element}'
-            element_color = matte_char_to_color[element]
+            element_color = matte_element_to_color[element]
             # if that color is in the colormatte for that frame, create a b/w matte matte for the element
             if element_color in matte_colors:
-                matte = get_char_bw_matte_from_colormatte(image, element_color)
+                matte = get_element_bw_matte_from_colormatte(image, element_color)
             else:
                 matte = create_black_matte(IMAGE_WIDTH, IMAGE_HEIGHT)
             
@@ -274,4 +273,5 @@ for frame in range(matte_start_frame, matte_end_frame + 1, args.increment):
             
             save_bw_matte(black_matte, element_matte_path, black_matte_filename)
 
-print(f"Generation of mattes for frames {matte_start_frame} through {matte_end_frame} with increment {args.increment} is complete.")
+print(f"Generation of mattes for frames {matte_start_frame} through {matte_end_frame} with increment {args.increment}"
+      f" is complete.")

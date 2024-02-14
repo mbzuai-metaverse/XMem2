@@ -171,10 +171,15 @@ def create_frame_dict(files):
 parser = argparse.ArgumentParser(description='Create black and white mattes for elements in color mattes.')
 
 # Required parameters
-parser.add_argument('map_colors_path', type=str, help='Path to csv file that maps matte colors to elements')
+parser.add_argument('map_colors_path', type=str, help='Path to csv file that maps matte colors to elements. Each row '
+                                                      'must have a BGRColor column and an Element column whose matte '
+                                                      'color will be the BGRColor.')
 parser.add_argument('colormatte_path', help='Path to the colormatte files from which to extract black and white mattes')
-parser.add_argument('elements', type=str, help='Comma separated (no spaces, no brackets) list of elements that need'
-                                               ' black and white mattes. Example: element1,element2')
+parser.add_argument('elements', type=str, help='Comma-separated (no spaces, no brackets) list of elements taken from '
+                                               'the Elements column of map_colors_path that need black and white '
+                                               'mattes generated from the color mattes in colormatte_path. '
+                                               'Each element must be specified with no spaces and all lower case. '
+                                               'Example: elementname1,elementname2')
 
 # Optional parameters
 parser.add_argument('-sf', '--start_frame', type=int, help='Start processing at this frame')

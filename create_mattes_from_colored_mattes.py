@@ -252,8 +252,12 @@ for frame in range(matte_start_frame, matte_end_frame + 1, args.increment):
         matte_colors = get_matte_colors(image)    
 
         for element in bw_matte_elements:
-            element_matte_path = rf'{matte_path}\{element}'
-            element_color = matte_element_to_color[element]
+            # element_matte_path = rf'{matte_path}\{element}'
+            # element is now part of matte_path
+            element_matte_path = rf'{matte_path}'
+            # element_color = matte_element_to_color[element]
+            # Always look for 'dorothy red' now
+            element_color = matte_element_to_color['dorothy']
             # if that color is in the colormatte for that frame, create a b/w matte matte for the element
             if element_color in matte_colors:
                 matte = get_element_bw_matte_from_colormatte(image, element_color)
@@ -270,7 +274,9 @@ for frame in range(matte_start_frame, matte_end_frame + 1, args.increment):
             # create a black matte using the image width and height of the input images
             black_matte = create_black_matte(IMAGE_WIDTH, IMAGE_HEIGHT)
             # write the black matte
-            element_matte_path = rf'{matte_path}\{element}'
+            # element_matte_path = rf'{matte_path}\{element}'
+            # element is now part of matte_path
+            element_matte_path = rf'{matte_path}'
             
             save_bw_matte(black_matte, element_matte_path, black_matte_filename)
 

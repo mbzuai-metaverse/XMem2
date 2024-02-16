@@ -155,8 +155,9 @@ def create_frame_dict(files):
 parser = argparse.ArgumentParser(description='Create black and white matte for element in color matte.')
 
 # Required parameters
-parser.add_argument('colormatte_path', help='Path to the colormatte files from which to extract black and white mattes')
-parser.add_argument('element', type=str, help='Element that needs a black and white matte')
+parser.add_argument('colormatte_path',
+                     help='Path to the colormatte files from which to extract black and white mattes. The last folder in the path must be the element name.')
+# parser.add_argument('element', type=str, help='Element that needs a black and white matte')
 
 # Optional parameters
 parser.add_argument('-sf', '--start_frame', type=int, help='Start processing at this frame')
@@ -165,7 +166,7 @@ parser.add_argument('-incr', '--increment', type=int, default=1, help='Frame inc
 
 args = parser.parse_args()
 
-bw_matte_element = args.element
+element = os.path.basename(args.colormatte_path)
 
 
 # Get the default frame range from the denoise path
@@ -189,7 +190,7 @@ else:
 
 
 print('colormatte_path', args.colormatte_path)
-print('element', bw_matte_element)
+print('element', element)
 print('start_frame', matte_start_frame)
 print('end_frame', matte_end_frame)
 print('increment', args.increment)

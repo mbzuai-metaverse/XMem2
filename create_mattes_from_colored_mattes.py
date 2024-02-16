@@ -155,6 +155,7 @@ def create_frame_dict(files):
 parser = argparse.ArgumentParser(description='Create black and white matte for element in color matte.')
 
 # Required parameters
+
 parser.add_argument('colormatte_path', help='Path to the colormatte files from which to extract black and white mattes')
 parser.add_argument('element', type=str, help='Element that needs a black and white matte')
 

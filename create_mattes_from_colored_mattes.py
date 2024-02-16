@@ -7,24 +7,8 @@ import csv
 import ast
 import argparse
 
-matte_element_to_color = {}
 
-
-def populate_element_to_color_dict(csv_file_path):
-    """
-    From the csv file mapping XMem2 matte colors to shot elements, create a dictionary with the elements as keys.
-    Note the BGR colors for OpenCV.
-    """
-    if os.path.exists(csv_file_path):
-        with open(csv_file_path, 'r', newline='') as csv_file:
-            csv_reader = csv.DictReader(csv_file)
-
-            for row in csv_reader:
-                element = row['Element'].lower().replace(" ", "")
-                matte_element_to_color[element] = tuple(map(int, row['BGRColor'].strip('()').split(', ')))
-    else:
-        print(f"{csv_file_path} does not exist. Please supply a valid csv file to map matte colors to elements.")
-        sys.exit(1)
+BGR_MATTE_COLOR = (0, 0, 128)
 
 
 def get_files_in_path(colormatte_path):
@@ -168,13 +152,11 @@ def create_frame_dict(files):
     return frame_dict
 
 
-parser = argparse.ArgumentParser(description='Create black and white mattes for elements in color mattes.')
+parser = argparse.ArgumentParser(description='Create black and white matte for element in color matte.')
 
 # Required parameters
-parser.add_argument('map_colors_path', type=str, help='Path to csv file that maps matte colors to elements')
 parser.add_argument('colormatte_path', help='Path to the colormatte files from which to extract black and white mattes')
-parser.add_argument('elements', type=str, help='Comma separated (no spaces, no brackets) list of elements that need'
-                                               ' black and white mattes. Example: element1,element2')
+parser.add_argument('element', type=str, help='Element that needs a black and white matte')
 
 # Optional parameters
 parser.add_argument('-sf', '--start_frame', type=int, help='Start processing at this frame')
@@ -183,7 +165,7 @@ parser.add_argument('-incr', '--increment', type=int, default=1, help='Frame inc
 
 args = parser.parse_args()
 
-bw_matte_elements = args.elements.split(',')
+bw_matte_element = args.element
 
 
 # Get the default frame range from the denoise path
@@ -206,27 +188,13 @@ else:
     matte_end_frame = args.end_frame
 
 
-print('map_colors_path', args.map_colors_path)
 print('colormatte_path', args.colormatte_path)
-print('elements', bw_matte_elements)
+print('element', bw_matte_element)
 print('start_frame', matte_start_frame)
 print('end_frame', matte_end_frame)
 print('increment', args.increment)
 
 matte_path = get_matte_path(args.colormatte_path)
-
-# Use the csv file to create a matte color lookup by element
-populate_element_to_color_dict(args.map_colors_path)
-
-
-invalid_elements = []
-for element in bw_matte_elements:
-    if element not in matte_element_to_color:
-        invalid_elements.append(element)
-        if invalid_elements:
-            print(f"The following elements were requested and are invalid shot elements: {invalid_elements}")
-            sys.exit(1)
-
 
 colormatte_files = get_files_in_path(args.colormatte_path)
 
@@ -251,34 +219,28 @@ for frame in range(matte_start_frame, matte_end_frame + 1, args.increment):
 
         matte_colors = get_matte_colors(image)    
 
-        for element in bw_matte_elements:
-            # element_matte_path = rf'{matte_path}\{element}'
-            # element is now part of matte_path
-            element_matte_path = rf'{matte_path}'
-            # element_color = matte_element_to_color[element]
-            # Always look for 'dorothy red' now
-            element_color = matte_element_to_color['dorothy']
-            # if that color is in the colormatte for that frame, create a b/w matte matte for the element
-            if element_color in matte_colors:
-                matte = get_element_bw_matte_from_colormatte(image, element_color)
-            else:
-                matte = create_black_matte(IMAGE_WIDTH, IMAGE_HEIGHT)
-            
-            save_bw_matte(matte, element_matte_path, matte_filename)
+        # element is part of matte_path
+        element_matte_path = rf'{matte_path}'
+        # if that color is in the colormatte for that frame, create a b/w matte matte for the element
+        if BGR_MATTE_COLOR in matte_colors:
+            matte = get_element_bw_matte_from_colormatte(image, BGR_MATTE_COLOR)
+        else:
+            matte = create_black_matte(IMAGE_WIDTH, IMAGE_HEIGHT)
+        
+        save_bw_matte(matte, element_matte_path, matte_filename)
 
     else:
-        # frame is missing - create black mattes for all elements
-        for element in bw_matte_elements:
-            # create an output file path for that frame, based on the input file paths
-            black_matte_filename = create_black_matte_filename(colormatte_files[0], frame)
-            # create a black matte using the image width and height of the input images
-            black_matte = create_black_matte(IMAGE_WIDTH, IMAGE_HEIGHT)
-            # write the black matte
-            # element_matte_path = rf'{matte_path}\{element}'
-            # element is now part of matte_path
-            element_matte_path = rf'{matte_path}'
-            
-            save_bw_matte(black_matte, element_matte_path, black_matte_filename)
+        # frame is missing - create black matte for element
+      
+        # create an output file path for that frame, based on the input file paths
+        black_matte_filename = create_black_matte_filename(colormatte_files[0], frame)
+        # create a black matte using the image width and height of the input images
+        black_matte = create_black_matte(IMAGE_WIDTH, IMAGE_HEIGHT)
+       
+        # element is part of matte_path
+        element_matte_path = rf'{matte_path}'
+        
+        save_bw_matte(black_matte, element_matte_path, black_matte_filename)
 
 print(f"Generation of mattes for frames {matte_start_frame} through {matte_end_frame} with increment {args.increment}"
       f" is complete.")

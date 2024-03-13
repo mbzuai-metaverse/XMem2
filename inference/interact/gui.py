@@ -109,12 +109,29 @@ class App(QWidget):
         self.spacebar = QShortcut(QKeySequence(Qt.Key_Space), self)
         self.spacebar.activated.connect(self.pause_propagation)
 
+        
+        # Have two text boxes, the first can be updated to choose the frame
+        self.current_frame = QTextEdit()
+        self.current_frame.setReadOnly(False)
+        self.current_frame.setMaximumHeight(28)
+        self.current_frame.setFixedWidth(60)
+        self.current_frame.setText('{: 4d}'.format(0))
+        self.current_frame.installEventFilter(self)
+        # self.current_frame.returnPressed.connect(self.show_chosen_frame)
+
+        self.last_frame = QTextEdit()
+        self.last_frame.setReadOnly(True)
+        self.last_frame.setMaximumHeight(28)
+        self.last_frame.setFixedWidth(60)
+        self.last_frame.setText('{: 4d}'.format(self.num_frames-1))
+        
+        
         # LCD
-        self.lcd = QTextEdit()
-        self.lcd.setReadOnly(True)
-        self.lcd.setMaximumHeight(28)
-        self.lcd.setFixedWidth(120)
-        self.lcd.setText('{: 4d} / {: 4d}'.format(0, self.num_frames-1))
+        # self.lcd = QTextEdit()
+        # self.lcd.setReadOnly(True)
+        # self.lcd.setMaximumHeight(28)
+        # self.lcd.setFixedWidth(120)
+        # self.lcd.setText('{: 4d} / {: 4d}'.format(0, self.num_frames-1))
 
         # timeline slider
         self.tl_slider = QSlider(Qt.Horizontal)
@@ -247,7 +264,9 @@ class App(QWidget):
 
         # navigator
         navi = QHBoxLayout()
-        navi.addWidget(self.lcd)
+        # navi.addWidget(self.lcd)
+        navi.addWidget(self.current_frame)
+        navi.addWidget(self.last_frame)
         navi.addWidget(self.play_button)
 
         interact_subbox = QVBoxLayout()
@@ -580,7 +599,10 @@ class App(QWidget):
             self.update_interact_vis()
             self.update_minimap()
 
-        self.lcd.setText('{: 3d} / {: 3d}'.format(self.cursur, self.num_frames-1))
+
+        # self.lcd.setText('{: 3d} / {: 3d}'.format(self.cursur, self.num_frames-1))
+        self.current_frame.setText('{: 3d}'.format(self.cursur))
+        self.last_frame.setText('{: 3d}'.format(self.num_frames-1))
         self.tl_slider.setValue(self.cursur)
 
         if self.cursur in self.reference_ids:
@@ -660,6 +682,24 @@ class App(QWidget):
     def save_current_mask(self):
         # save mask to hard disk
         self.res_man.save_mask(self.cursur, self.current_mask)
+
+    def eventFilter(self, obj, event):
+        if obj == self.current_frame and event.type() == event.KeyPress:
+            if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
+                self.show_chosen_frame()
+                return True  # Event handled
+
+        return super().eventFilter(obj, event)
+
+    def show_chosen_frame(self):
+        self.console_push_text('Change to the selected frame.')
+        # frame_num = int(self.current_frame.toPlainText())
+        frame_txt = self.current_frame.toPlainText()
+        self.console_push_text(frame_txt)
+        frame_int = int(frame_txt)
+        self.cursur = frame_int
+        self.load_current_image_mask()
+        self.show_current_frame()
 
     def tl_slide(self):
         # if we are propagating, the on_run function will take care of everything
@@ -904,7 +944,7 @@ class App(QWidget):
             self.timer.stop()
             self.play_button.setText('Play Video')
         else:
-            self.timer.start(1000 / 30)
+            self.timer.start(33)
             self.play_button.setText('Stop Video')
 
     def on_reset_mask(self):
@@ -932,7 +972,9 @@ class App(QWidget):
         self.run_button.setEnabled(boolean)
         self.tl_slider.setEnabled(boolean)
         self.play_button.setEnabled(boolean)
-        self.lcd.setEnabled(boolean)
+        # self.lcd.setEnabled(boolean)
+        self.current_frame.setEnabled(boolean)
+        self.last_frame.setEnables(boolean)
 
     def hit_number_key(self, number):
         if number == self.current_object:
